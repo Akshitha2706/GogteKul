@@ -94,11 +94,59 @@ const Dashboard = () => {
     { id: 3, title: 'Family Business Milestone Achievement', summary: 'Our family business has reached a significant milestone...', author: 'Mohan Gogte', date: '1 week ago', likes: 32, comments: 6 },
   ];
 
-  const upcomingEvents = [
-    { id: 1, title: 'Diwali Celebration', date: 'Nov 12, 2024', time: '6:00 PM', location: 'Community Hall', attendees: 45 },
-    { id: 2, title: 'Monthly Family Meeting', date: 'Nov 20, 2024', time: '10:00 AM', location: 'Gogte Residence', attendees: 12 },
-    { id: 3, title: "Children's Birthday Party", date: 'Nov 25, 2024', time: '4:00 PM', location: 'Garden Area', attendees: 28 },
-  ];
+  const [upcomingCelebrations, setUpcomingCelebrations] = useState([]);
+  const [loadingCelebrations, setLoadingCelebrations] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+    const fetchCelebrations = async () => {
+      setLoadingCelebrations(true);
+      try {
+        const response = await fetch('/api/members/celebrations');
+        if (!response.ok) {
+          throw new Error('Failed to fetch celebrations');
+        }
+        const data = await response.json();
+        if (isMounted) {
+          const birthdays = Array.isArray(data?.birthdays) ? data.birthdays : [];
+          const anniversaries = Array.isArray(data?.anniversaries) ? data.anniversaries : [];
+          const combined = [...birthdays, ...anniversaries]
+            .map((item) => {
+              const date = item?.date ? new Date(item.date) : null;
+              if (!date || Number.isNaN(date.getTime())) {
+                return null;
+              }
+              date.setHours(0, 0, 0, 0);
+              return {
+                id: `${item.category || 'event'}-${item.serNo || item.id || Math.random()}`,
+                title: item.name || item.title || 'Family Celebration',
+                category: item.category || 'event',
+                date,
+                originalDate: item.originalDate || item.date,
+                turningAge: item.turningAge || null,
+              };
+            })
+            .filter(Boolean)
+            .sort((a, b) => a.date.getTime() - b.date.getTime())
+            .slice(0, 3);
+          setUpcomingCelebrations(combined);
+        }
+      } catch (error) {
+        if (isMounted) {
+          setUpcomingCelebrations([]);
+        }
+      } finally {
+        if (isMounted) {
+          setLoadingCelebrations(false);
+        }
+      }
+    };
+
+    fetchCelebrations();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   return (
   <div className="space-y-8 xs:space-y-12" style={{ fontFamily: 'Montserrat, sans-serif' }}>
@@ -248,12 +296,27 @@ const Dashboard = () => {
           </div>
           <div className="p-6">
             <div className="space-y-5">
-              {upcomingEvents.map((event) => (
+              {loadingCelebrations && upcomingCelebrations.length === 0 && (
+                <div className="border border-dashed border-amber-300 rounded-xl p-5 bg-white text-center text-amber-600 text-base">
+                  Loading upcoming birthdays...
+                </div>
+              )}
+              {!loadingCelebrations && upcomingCelebrations.length === 0 && (
+                <div className="border border-dashed border-amber-300 rounded-xl p-5 bg-white text-center text-amber-600 text-base">
+                  No birthdays within the next week.
+                </div>
+              )}
+              {upcomingCelebrations.map((event) => (
                 <div key={event.id} className="border border-amber-200 rounded-xl p-5 hover:shadow-lg transition-shadow bg-white">
-                  <h3 className="font-bold text-amber-900 mb-2 text-lg">{event.title}</h3>
-                  <div className="space-y-1 text-base text-amber-800">
-                    <p className="flex items-center"><Calendar size={16} className="mr-2" />{event.date} at {event.time}</p>
-                    <p className="flex items-center"><Users size={16} className="mr-2" />{event.attendees} attending</p>
+                  <h3 className="font-bold text-amber-900 mb-2 text-lg flex items-center gap-2">
+                    <span>{event.title}</span>
+                    <span className="text-sm font-semibold text-amber-600 capitalize">{event.category}</span>
+                  </h3>
+                  <div className="space-y-2 text-base text-amber-800">
+                    <p className="flex items-center"><Calendar size={16} className="mr-2" />{event.date.toLocaleDateString()}</p>
+                    {event.turningAge !== null && (
+                      <p className="flex items-center"><Users size={16} className="mr-2" />Turning {event.turningAge}</p>
+                    )}
                   </div>
                   <div className="mt-4">
                     <button className="text-amber-600 hover:text-amber-800 text-base font-semibold" onClick={() => window.location.href = '/gogte-events'}>View Details →</button>
