@@ -313,9 +313,14 @@ export default function GogteNewsPage() {
                           {getCategoryLabel(newsItem?.category)}
                         </span>
                       </div>
-                      {(newsItem?.priority === 'High' || newsItem?.priority === 'Urgent') && (
-                        <div className="absolute top-3 right-3 bg-red-500 text-white px-3 py-1 rounded-full text-xs font-bold">
-                          {newsItem.priority === 'Urgent' ? '🔴 URGENT' : '⚠️ HIGH'}
+                      {newsItem?.priority && (
+                        <div className={`absolute top-3 right-3 px-3 py-1 rounded-full text-xs font-bold text-white ${
+                          newsItem.priority === 'Urgent' ? 'bg-red-600' : 
+                          newsItem.priority === 'High' ? 'bg-orange-500' : 
+                          newsItem.priority === 'Medium' ? 'bg-yellow-500' : 
+                          'bg-green-500'
+                        }`}>
+                          {newsItem.priority}
                         </div>
                       )}
                     </div>
