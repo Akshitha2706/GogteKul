@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { Filter, Search, Star, User, Clock, X } from 'lucide-react';
+import { Filter, Search, Star, User, Clock, X, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { AddNewsModal } from './AddNewsModal';
 import Footer from '../components/Footer';
@@ -14,6 +14,7 @@ export default function GogteNewsPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedNews, setSelectedNews] = useState(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
+  const scrollerRef = useRef(null);
 
   const loadNews = async () => {
     try {
@@ -119,7 +120,44 @@ export default function GogteNewsPage() {
     setShowDetailModal(true);
   };
 
+  const scroll = (direction) => {
+    if (scrollerRef.current) {
+      const scrollAmount = 400;
+      scrollerRef.current.scrollBy({
+        left: direction === 'left' ? -scrollAmount : scrollAmount,
+        behavior: 'smooth',
+      });
+    }
+  };
 
+  const featuredNews = useMemo(() => {
+    // Get current date and calculate start of current week (Monday)
+    const today = new Date();
+    const currentDay = today.getDay();
+    const daysToMonday = currentDay === 0 ? 6 : currentDay - 1;
+    const weekStart = new Date(today);
+    weekStart.setDate(today.getDate() - daysToMonday);
+    weekStart.setHours(0, 0, 0, 0);
+
+    // Filter news from current week only
+    const thisWeekNews = news.filter((item) => {
+      const itemDate = new Date(item.publishDate || item.createdAt);
+      return itemDate >= weekStart;
+    });
+
+    // Sort by priority and date
+    const combined = [...thisWeekNews].sort((a, b) => {
+      const priorityOrder = { 'Urgent': 0, 'High': 1, 'Medium': 2, 'Low': 3 };
+      const aPriority = priorityOrder[a.priority] ?? 999;
+      const bPriority = priorityOrder[b.priority] ?? 999;
+      if (aPriority !== bPriority) return aPriority - bPriority;
+      
+      const aDate = new Date(a.publishDate || a.createdAt).getTime();
+      const bDate = new Date(b.publishDate || b.createdAt).getTime();
+      return bDate - aDate;
+    });
+    return combined.slice(0, 8);
+  }, [news]);
 
   const selectedDetails = useMemo(() => {
     if (!selectedNews) {
@@ -220,6 +258,96 @@ export default function GogteNewsPage() {
             </div>
           </div>
         </div>
+
+        {/* Featured News Scroller */}
+        {featuredNews.length > 0 && (
+          <div className="mb-8">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-2xl font-bold text-amber-800">Trending & High Priority</h2>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => scroll('left')}
+                  className="p-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg transition-colors"
+                  aria-label="Scroll left"
+                >
+                  <ChevronLeft className="w-5 h-5" />
+                </button>
+                <button
+                  onClick={() => scroll('right')}
+                  className="p-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg transition-colors"
+                  aria-label="Scroll right"
+                >
+                  <ChevronRight className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+            <div
+              ref={scrollerRef}
+              className="flex gap-6 overflow-x-auto pb-4 scroll-smooth"
+              style={{ scrollBehavior: 'smooth', WebkitOverflowScrolling: 'touch' }}
+            >
+              {featuredNews.map((newsItem, index) => {
+                const newsId = getNewsId(newsItem);
+                const imageUrl = newsItem?.images?.thumbnail || newsItem?.images?.url;
+                const publishDate = newsItem?.publishDate || newsItem?.createdAt || newsItem?.updatedAt;
+                return (
+                  <div
+                    key={newsId || `featured-${index}`}
+                    onClick={() => handleNewsClick(newsItem)}
+                    className="flex-shrink-0 w-80 bg-white rounded-xl shadow-md border border-orange-200 overflow-hidden cursor-pointer hover:shadow-xl transition-shadow duration-300"
+                  >
+                    <div className="aspect-video bg-gradient-to-br from-amber-100 to-orange-200 relative overflow-hidden">
+                      {imageUrl ? (
+                        <img
+                          src={imageUrl}
+                          alt={newsItem?.title || 'News image'}
+                          className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
+                        />
+                      ) : (
+                        <div className="flex items-center justify-center h-full">
+                          <span className="text-4xl">📰</span>
+                        </div>
+                      )}
+                      <div className="absolute top-3 left-3">
+                        <span className="bg-amber-500 text-white px-3 py-1 rounded-full text-sm font-medium">
+                          {getCategoryLabel(newsItem?.category)}
+                        </span>
+                      </div>
+                      {(newsItem?.priority === 'High' || newsItem?.priority === 'Urgent') && (
+                        <div className="absolute top-3 right-3 bg-red-500 text-white px-3 py-1 rounded-full text-xs font-bold">
+                          {newsItem.priority === 'Urgent' ? '🔴 URGENT' : '⚠️ HIGH'}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="p-4">
+                      <h3 className="text-lg font-bold text-amber-800 mb-2 line-clamp-2">
+                        {newsItem?.title}
+                      </h3>
+                      {newsItem?.summary && (
+                        <p className="text-amber-700 mb-3 line-clamp-2 text-sm">
+                          {newsItem.summary}
+                        </p>
+                      )}
+
+                      <div className="flex items-center justify-between text-xs text-amber-600">
+                        <span className="flex items-center">
+                          <User className="w-3 h-3 mr-1" />
+                          {getAuthorName(newsItem)}
+                        </span>
+                        <span className="flex items-center">
+                          <Clock className="w-3 h-3 mr-1" />
+                          {formatDate(publishDate)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* News Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {filteredNews.length > 0 ? (
