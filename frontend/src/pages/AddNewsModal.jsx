@@ -56,17 +56,53 @@ export function AddNewsModal({ onAddNews }) {
     }
   }, [open]);
 
-  const handleMainImageUpload = (e) => {
+  const compressImage = async (file) => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
+
+          // Resize if image is too large (max 1200px on longest side)
+          const maxSize = 1200;
+          if (width > height) {
+            if (width > maxSize) {
+              height = (height * maxSize) / width;
+              width = maxSize;
+            }
+          } else {
+            if (height > maxSize) {
+              width = (width * maxSize) / height;
+              height = maxSize;
+            }
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+
+          // Convert to base64 with compression (quality: 0.8)
+          const compressedBase64 = canvas.toDataURL('image/jpeg', 0.8);
+          resolve(compressedBase64);
+        };
+        img.src = e.target.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleMainImageUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) {
       return;
     }
     setMainImageFile(file);
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      setMainImagePreview(event.target?.result || null);
-    };
-    reader.readAsDataURL(file);
+    const compressedImage = await compressImage(file);
+    setMainImagePreview(compressedImage);
   };
 
   const handleRemoveMainImage = () => {

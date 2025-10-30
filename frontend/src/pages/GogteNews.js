@@ -41,7 +41,7 @@ export default function GogteNewsPage() {
   };
 
   const filteredNews = useMemo(() => {
-    return news.filter((item) => {
+    const filtered = news.filter((item) => {
       const matchesCategory = selectedCategory === 'all' || item.category === selectedCategory;
       const matchesPriority = selectedPriority === 'all' || item.priority === selectedPriority;
       const matchesSearch = [
@@ -52,6 +52,20 @@ export default function GogteNewsPage() {
         getAuthorName(item),
       ].some((value) => String(value || '').toLowerCase().includes(searchTerm.toLowerCase()));
       return matchesCategory && matchesPriority && matchesSearch;
+    });
+
+    // Sort by priority and date
+    return filtered.sort((a, b) => {
+      const priorityOrder = { 'urgent': 0, 'high': 1, 'medium': 2, 'low': 3 };
+      const aPriorityStr = String(a.priority || '').toLowerCase();
+      const bPriorityStr = String(b.priority || '').toLowerCase();
+      const aPriority = priorityOrder[aPriorityStr] ?? 999;
+      const bPriority = priorityOrder[bPriorityStr] ?? 999;
+      if (aPriority !== bPriority) return aPriority - bPriority;
+      
+      const aDate = new Date(a.publishDate || a.createdAt).getTime();
+      const bDate = new Date(b.publishDate || b.createdAt).getTime();
+      return bDate - aDate;
     });
   }, [news, selectedCategory, selectedPriority, searchTerm, t]);
 
@@ -147,9 +161,11 @@ export default function GogteNewsPage() {
 
     // Sort by priority and date
     const combined = [...thisWeekNews].sort((a, b) => {
-      const priorityOrder = { 'Urgent': 0, 'High': 1, 'Medium': 2, 'Low': 3 };
-      const aPriority = priorityOrder[a.priority] ?? 999;
-      const bPriority = priorityOrder[b.priority] ?? 999;
+      const priorityOrder = { 'urgent': 0, 'high': 1, 'medium': 2, 'low': 3 };
+      const aPriorityStr = String(a.priority || '').toLowerCase();
+      const bPriorityStr = String(b.priority || '').toLowerCase();
+      const aPriority = priorityOrder[aPriorityStr] ?? 999;
+      const bPriority = priorityOrder[bPriorityStr] ?? 999;
       if (aPriority !== bPriority) return aPriority - bPriority;
       
       const aDate = new Date(a.publishDate || a.createdAt).getTime();
@@ -261,29 +277,29 @@ export default function GogteNewsPage() {
 
         {/* Featured News Scroller */}
         {featuredNews.length > 0 && (
-          <div className="mb-8">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-2xl font-bold text-amber-800">Trending & High Priority</h2>
+          <div className="mb-4">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-lg font-bold text-amber-800">Trending & High Priority</h2>
               <div className="flex gap-2">
                 <button
                   onClick={() => scroll('left')}
-                  className="p-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg transition-colors"
+                  className="p-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg transition-colors"
                   aria-label="Scroll left"
                 >
-                  <ChevronLeft className="w-5 h-5" />
+                  <ChevronLeft className="w-4 h-4" />
                 </button>
                 <button
                   onClick={() => scroll('right')}
-                  className="p-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg transition-colors"
+                  className="p-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg transition-colors"
                   aria-label="Scroll right"
                 >
-                  <ChevronRight className="w-5 h-5" />
+                  <ChevronRight className="w-4 h-4" />
                 </button>
               </div>
             </div>
             <div
               ref={scrollerRef}
-              className="flex gap-6 overflow-x-auto pb-4 scroll-smooth"
+              className="flex gap-4 overflow-x-auto pb-2 scroll-smooth"
               style={{ scrollBehavior: 'smooth', WebkitOverflowScrolling: 'touch' }}
             >
               {featuredNews.map((newsItem, index) => {
@@ -294,9 +310,9 @@ export default function GogteNewsPage() {
                   <div
                     key={newsId || `featured-${index}`}
                     onClick={() => handleNewsClick(newsItem)}
-                    className="flex-shrink-0 w-80 bg-white rounded-xl shadow-md border border-orange-200 overflow-hidden cursor-pointer hover:shadow-xl transition-shadow duration-300"
+                    className="flex-shrink-0 w-64 bg-white rounded-lg shadow-md border border-orange-200 overflow-hidden cursor-pointer hover:shadow-lg transition-shadow duration-300"
                   >
-                    <div className="aspect-video bg-gradient-to-br from-amber-100 to-orange-200 relative overflow-hidden">
+                    <div className="h-32 bg-gradient-to-br from-amber-100 to-orange-200 relative overflow-hidden">
                       {imageUrl ? (
                         <img
                           src={imageUrl}
@@ -305,16 +321,16 @@ export default function GogteNewsPage() {
                         />
                       ) : (
                         <div className="flex items-center justify-center h-full">
-                          <span className="text-4xl">📰</span>
+                          <span className="text-2xl">📰</span>
                         </div>
                       )}
-                      <div className="absolute top-3 left-3">
-                        <span className="bg-amber-500 text-white px-3 py-1 rounded-full text-sm font-medium">
+                      <div className="absolute top-2 left-2">
+                        <span className="bg-amber-500 text-white px-2 py-0.5 rounded-full text-xs font-medium">
                           {getCategoryLabel(newsItem?.category)}
                         </span>
                       </div>
                       {newsItem?.priority && (
-                        <div className={`absolute top-3 right-3 px-3 py-1 rounded-full text-xs font-bold text-white ${
+                        <div className={`absolute top-2 right-2 px-2 py-0.5 rounded-full text-xs font-bold text-white ${
                           newsItem.priority === 'Urgent' ? 'bg-red-600' : 
                           newsItem.priority === 'High' ? 'bg-orange-500' : 
                           newsItem.priority === 'Medium' ? 'bg-yellow-500' : 
@@ -325,26 +341,15 @@ export default function GogteNewsPage() {
                       )}
                     </div>
 
-                    <div className="p-4">
-                      <h3 className="text-lg font-bold text-amber-800 mb-2 line-clamp-2">
+                    <div className="p-2.5">
+                      <h3 className="text-sm font-bold text-amber-800 mb-1 line-clamp-2">
                         {newsItem?.title}
                       </h3>
                       {newsItem?.summary && (
-                        <p className="text-amber-700 mb-3 line-clamp-2 text-sm">
+                        <p className="text-amber-700 line-clamp-1 text-xs">
                           {newsItem.summary}
                         </p>
                       )}
-
-                      <div className="flex items-center justify-between text-xs text-amber-600">
-                        <span className="flex items-center">
-                          <User className="w-3 h-3 mr-1" />
-                          {getAuthorName(newsItem)}
-                        </span>
-                        <span className="flex items-center">
-                          <Clock className="w-3 h-3 mr-1" />
-                          {formatDate(publishDate)}
-                        </span>
-                      </div>
                     </div>
                   </div>
                 );
