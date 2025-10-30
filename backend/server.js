@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import { MongoClient } from 'mongodb';
+import { MongoClient, ObjectId } from 'mongodb';
 import createAuthRouter from './routes/auth.js';
 import fs from 'fs';
 import { verifyToken, requireDBA, requireAdmin } from './middleware/auth.js';
@@ -24,14 +24,149 @@ const sheetsCollectionName = 'members';
 let client;
 let db;
 
+const stringOrEmpty = (value) => (value === undefined || value === null ? '' : String(value));
+const trimmedStringOrEmpty = (value) => stringOrEmpty(value).trim();
+const toBoolean = (value) => {
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === 'true') return true;
+    if (normalized === 'false') return false;
+  }
+  return Boolean(value);
+};
+const toISOStringOrNull = (value) => {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString();
+};
+const ensureNewsTags = (value) => {
+  if (Array.isArray(value)) {
+    return value.map((tag) => trimmedStringOrEmpty(tag)).filter(Boolean);
+  }
+  if (typeof value === 'string') {
+    return value.split(',').map((tag) => trimmedStringOrEmpty(tag)).filter(Boolean);
+  }
+  return [];
+};
+const ensureVisibleVanshNumbers = (value) => {
+  if (Array.isArray(value)) {
+    return value.map((item) => trimmedStringOrEmpty(item)).filter(Boolean);
+  }
+  if (typeof value === 'string') {
+    return value.split(',').map((item) => trimmedStringOrEmpty(item)).filter(Boolean);
+  }
+  return [];
+};
+const resolveNewsPriority = (value) => {
+  const normalized = trimmedStringOrEmpty(value).toLowerCase();
+  if (normalized === 'high' || normalized === 'medium' || normalized === 'low') {
+    return normalized;
+  }
+  return 'low';
+};
+const extractNewsImages = (source) => {
+  const candidate = source && typeof source === 'object' ? source : {};
+  return {
+    url: trimmedStringOrEmpty(candidate.url || candidate.imageUrl),
+    thumbnail: trimmedStringOrEmpty(candidate.thumbnail || candidate.imageThumbnail),
+    caption: trimmedStringOrEmpty(candidate.caption || candidate.imageCaption),
+  };
+};
+const parseDateValue = (value) => {
+  if (!value) return null;
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value;
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  return date;
+};
 const normalizeNewsDocument = (doc) => {
   if (!doc) return null;
-  const { _id, ...rest } = doc;
-  const result = { ...rest };
-  if (_id) {
-    result.id = String(_id);
+  const images = extractNewsImages(doc.images || doc);
+  return {
+    id: doc._id ? String(doc._id) : null,
+    title: trimmedStringOrEmpty(doc.title),
+    summary: trimmedStringOrEmpty(doc.summary),
+    content: stringOrEmpty(doc.content),
+    author: doc.author ? String(doc.author) : null,
+    authorName: trimmedStringOrEmpty(doc.authorName),
+    category: trimmedStringOrEmpty(doc.category),
+    images,
+    publishDate: toISOStringOrNull(doc.publishDate),
+    priority: resolveNewsPriority(doc.priority),
+    tags: ensureNewsTags(doc.tags),
+    visibleVanshNumbers: ensureVisibleVanshNumbers(doc.visibleVanshNumbers || doc.visibleVansh),
+    visibleToAllVansh: toBoolean(doc.visibleToAllVansh),
+    createdAt: toISOStringOrNull(doc.createdAt),
+    updatedAt: toISOStringOrNull(doc.updatedAt),
+  };
+};
+const parseAuthorObjectId = (value) => {
+  const str = trimmedStringOrEmpty(value);
+  if (!str) return null;
+  if (!ObjectId.isValid(str)) return null;
+  return new ObjectId(str);
+};
+const buildNewsImagesPayload = (body) => {
+  const source = body && typeof body === 'object' ? body : {};
+  const imagesSource = source.images && typeof source.images === 'object' ? source.images : {};
+  const url = trimmedStringOrEmpty(imagesSource.url || source.imageUrl);
+  const thumbnail = trimmedStringOrEmpty(imagesSource.thumbnail || source.imageThumbnail);
+  const caption = trimmedStringOrEmpty(imagesSource.caption || source.imageCaption);
+  return {
+    url,
+    thumbnail,
+    caption,
+  };
+};
+const buildNewsPayload = (body, user, existing = {}) => {
+  const input = body && typeof body === 'object' ? body : {};
+  const now = new Date();
+  const createdAt = parseDateValue(existing.createdAt) || now;
+  const publishDate = parseDateValue(input.publishDate) || parseDateValue(existing.publishDate);
+  const tags = ensureNewsTags(input.tags !== undefined ? input.tags : existing.tags);
+  const images = buildNewsImagesPayload(input);
+  const priority = resolveNewsPriority(input.priority || existing.priority);
+  const visibleToAllSource = input.visibleToAllVansh !== undefined ? input.visibleToAllVansh : existing.visibleToAllVansh;
+  const visibleToAllVansh = toBoolean(visibleToAllSource);
+  const visibleVanshSource = input.visibleVanshNumbers !== undefined
+    ? input.visibleVanshNumbers
+    : existing.visibleVanshNumbers !== undefined
+    ? existing.visibleVanshNumbers
+    : existing.visibleVansh;
+  const visibleVanshNumbers = visibleToAllVansh ? [] : ensureVisibleVanshNumbers(visibleVanshSource);
+  let author = parseAuthorObjectId(input.author);
+  if (!author) {
+    if (existing.author instanceof ObjectId) {
+      author = existing.author;
+    } else if (parseAuthorObjectId(existing.author)) {
+      author = parseAuthorObjectId(existing.author);
+    } else if (ObjectId.isValid(user?.sub)) {
+      author = new ObjectId(user.sub);
+    }
   }
-  return result;
+  return {
+    title: trimmedStringOrEmpty(input.title || existing.title),
+    summary: trimmedStringOrEmpty(input.summary || existing.summary),
+    content: stringOrEmpty(input.content || existing.content),
+    category: trimmedStringOrEmpty(input.category || existing.category),
+    priority,
+    tags,
+    visibleToAllVansh,
+    visibleVanshNumbers,
+    images,
+    publishDate,
+    authorName: trimmedStringOrEmpty(input.authorName || existing.authorName),
+    author: author || null,
+    createdBy: existing.createdBy ?? (user?.sub ?? null),
+    createdBySerNo: existing.createdBySerNo ?? (user?.serNo ?? null),
+    createdAt,
+    updatedAt: now,
+  };
 };
 
 async function connectToMongo() {
@@ -1042,17 +1177,54 @@ app.post('/api/news', verifyToken, async (req, res) => {
   try {
     const database = await connectToMongo();
     const collection = database.collection(newsCollectionName);
-    const payload = { ...req.body };
-    payload.createdBySerNo = req.user?.serNo ?? null;
-    payload.createdBy = req.user?.sub ?? null;
-    payload.createdAt = new Date();
-    payload.updatedAt = new Date();
+    const payload = buildNewsPayload(req.body, req.user);
     const result = await collection.insertOne(payload);
     const created = normalizeNewsDocument({ _id: result.insertedId, ...payload });
     res.status(201).json(created);
   } catch (err) {
     console.error('Error creating news:', err);
     res.status(500).json({ error: 'Failed to create news' });
+  }
+});
+
+app.put('/api/news/:id', verifyToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({ error: 'Invalid news id' });
+    }
+    const database = await connectToMongo();
+    const collection = database.collection(newsCollectionName);
+    const existing = await collection.findOne({ _id: new ObjectId(id) });
+    if (!existing) {
+      return res.status(404).json({ error: 'News not found' });
+    }
+    const payload = buildNewsPayload(req.body, req.user, existing);
+    await collection.updateOne({ _id: new ObjectId(id) }, { $set: payload });
+    const updated = normalizeNewsDocument({ _id: existing._id, ...payload });
+    res.json(updated);
+  } catch (err) {
+    console.error('Error updating news:', err);
+    res.status(500).json({ error: 'Failed to update news' });
+  }
+});
+
+app.delete('/api/news/:id', verifyToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({ error: 'Invalid news id' });
+    }
+    const database = await connectToMongo();
+    const collection = database.collection(newsCollectionName);
+    const result = await collection.deleteOne({ _id: new ObjectId(id) });
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ error: 'News not found' });
+    }
+    res.status(204).send();
+  } catch (err) {
+    console.error('Error deleting news:', err);
+    res.status(500).json({ error: 'Failed to delete news' });
   }
 });
 

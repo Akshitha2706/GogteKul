@@ -1,5 +1,5 @@
-import { useState, useRef } from 'react';
-import { Plus, X, Image, Send, Upload, Camera, RefreshCw } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
+import { Plus, X, Send, Upload, RefreshCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '../components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../components/ui/dialog';
@@ -7,80 +7,154 @@ import { Input } from '../components/ui/input';
 import { Textarea } from '../components/ui/textarea';
 import { CustomSelect } from '../components/ui/select';
 import { Label } from '../components/ui/label';
+import api from '../utils/api';
 
 export function AddNewsModal({ onAddNews }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState('');
+  const [summary, setSummary] = useState('');
   const [content, setContent] = useState('');
   const [category, setCategory] = useState('');
-  const [imageUrl, setImageUrl] = useState('');
-  const [uploadedImage, setUploadedImage] = useState(null);
-  const [imagePreview, setImagePreview] = useState(null);
+  const [priority, setPriority] = useState('low');
+  const [imageCaption, setImageCaption] = useState('');
+  const [mainImageFile, setMainImageFile] = useState(null);
+  const [mainImagePreview, setMainImagePreview] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [author, setAuthor] = useState('');
-  const [location, setLocation] = useState('');
-  const [eventDate, setEventDate] = useState('');
-  const [tags, setTags] = useState('');
+  const [visibleVansh, setVisibleVansh] = useState([]);
+  const [vanshInput, setVanshInput] = useState('');
+  const [isAllVanshSelected, setIsAllVanshSelected] = useState(false);
+  const [authorName, setAuthorName] = useState('');
   const fileInputRef = useRef(null);
 
-  const handleImageUpload = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      setUploadedImage(file);
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        setImagePreview(e.target.result);
-      };
-      reader.readAsDataURL(file);
+  // Fetch author name from members collection on component mount
+  useEffect(() => {
+    const fetchAuthorName = async () => {
+      try {
+        const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
+        if (!currentUser.serNo) {
+          console.warn('User serNo not found');
+          return;
+        }
+
+        const response = await api.post('/api/family/members/by-sernos', {
+          serNos: [currentUser.serNo]
+        });
+
+        if (response.data?.members && response.data.members.length > 0) {
+          const member = response.data.members[0];
+          const fullName = member.name || `${member.firstName || ''} ${member.lastName || ''}`.trim();
+          setAuthorName(fullName);
+        }
+      } catch (error) {
+        console.error('Error fetching author name:', error);
+      }
+    };
+
+    if (open) {
+      fetchAuthorName();
     }
+  }, [open]);
+
+  const handleMainImageUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) {
+      return;
+    }
+    setMainImageFile(file);
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      setMainImagePreview(event.target?.result || null);
+    };
+    reader.readAsDataURL(file);
   };
 
-  const handleRemoveImage = () => {
-    setUploadedImage(null);
-    setImagePreview(null);
-    setImageUrl('');
+  const handleRemoveMainImage = () => {
+    setMainImageFile(null);
+    setMainImagePreview(null);
+    setImageCaption('');
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
   };
 
+  const handleAddVanshNumbers = () => {
+    if (isAllVanshSelected) {
+      return;
+    }
+    if (!vanshInput.trim()) {
+      return;
+    }
+    const entries = vanshInput
+      .split(',')
+      .map((value) => value.trim())
+      .filter((value) => value.length > 0);
+    if (entries.length === 0) {
+      return;
+    }
+    setVisibleVansh((prev) => {
+      const next = new Set(prev);
+      entries.forEach((value) => next.add(value));
+      return Array.from(next);
+    });
+    setVanshInput('');
+  };
+
+  const handleRemoveVanshNumber = (value) => {
+    setVisibleVansh((prev) => prev.filter((item) => item !== value));
+  };
+
+  const handleToggleAllVansh = () => {
+    setIsAllVanshSelected((prev) => {
+      const next = !prev;
+      if (next) {
+        setVisibleVansh([]);
+        setVanshInput('');
+      }
+      return next;
+    });
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
-    console.log('Form submitted with:', { title, content, category, imageUrl, imagePreview });
+    console.log('Form submitted with:', { title, content, category, mainImagePreview, authorName });
     
-    if (title && content && category) {
+    if (title && summary && content && category && mainImagePreview) {
       setIsSubmitting(true);
       
       try {
+        const visibleVanshNumbers = isAllVanshSelected ? [] : visibleVansh;
         const newsData = {
           title,
+          summary,
           content,
           category,
-          imageUrl: imageUrl || (imagePreview ? imagePreview : undefined),
-          uploadedImage: uploadedImage || undefined,
-          author: author || "Family Member",
-          location,
-          eventDate,
-          tags: tags.split(',').map(tag => tag.trim()).filter(tag => tag),
+          priority,
+          publishDate: new Date().toISOString(),
+          authorName,
+          images: {
+            url: mainImagePreview,
+            caption: imageCaption,
+          },
+          visibleToAllVansh: isAllVanshSelected,
+          visibleVanshNumbers,
         };
         console.log('Calling onAddNews with:', newsData);
         onAddNews(newsData);
         
-        // Simulate API delay
         await new Promise(resolve => setTimeout(resolve, 1000));
         
-        // Reset form
         setTitle('');
+        setSummary('');
         setContent('');
         setCategory('');
-        setImageUrl('');
-        setUploadedImage(null);
-        setImagePreview(null);
-        setAuthor('');
-        setLocation('');
-        setEventDate('');
-        setTags('');
+        setPriority('low');
+        setImageCaption('');
+        setMainImageFile(null);
+        setMainImagePreview(null);
+        setVisibleVansh([]);
+        setVanshInput('');
+        setIsAllVanshSelected(false);
         if (fileInputRef.current) {
           fileInputRef.current.value = '';
         }
@@ -91,7 +165,13 @@ export function AddNewsModal({ onAddNews }) {
         setIsSubmitting(false);
       }
     } else {
-      console.log('Form validation failed:', { title: !!title, content: !!content, category: !!category });
+      console.log('Form validation failed:', {
+        title: !!title,
+        summary: !!summary,
+        content: !!content,
+        category: !!category,
+        mainImage: !!mainImagePreview,
+      });
     }
   };
 
@@ -131,157 +211,173 @@ export function AddNewsModal({ onAddNews }) {
           </div>
           
           <div className="space-y-2">
-            <Label htmlFor="category" className="text-orange-900">{t('newsPage.addNewsModal.category')}</Label>
-            <CustomSelect 
-              value={category} 
-              onValueChange={setCategory} 
-              placeholder={t('newsPage.addNewsModal.selectCategory')}
-              className="border-orange-200 focus:border-orange-400 bg-white"
-            >
-              <div value="celebration">{t('newsPage.categories.celebration')}</div>
-              <div value="achievement">{t('newsPage.categories.achievement')}</div>
-              <div value="announcement">{t('newsPage.categories.announcement')}</div>
-              <div value="tradition">{t('newsPage.categories.tradition')}</div>
-              <div value="milestone">{t('newsPage.categories.milestone')}</div>
-              <div value="reunion">{t('newsPage.categories.reunion')}</div>
-              <div value="memory">{t('newsPage.categories.memory')}</div>
-              <div value="general">{t('newsPage.categories.general')}</div>
-            </CustomSelect>
+            <Label htmlFor="summary" className="text-orange-900">{t('newsPage.addNewsModal.summary')}</Label>
+            <Textarea
+              id="summary"
+              value={summary}
+              onChange={(e) => setSummary(e.target.value)}
+              placeholder={t('newsPage.addNewsModal.summaryPlaceholder')}
+              className="border-orange-200 focus:border-orange-400 bg-white min-h-[80px]"
+              maxLength={180}
+              required
+            />
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="category" className="text-orange-900">{t('newsPage.addNewsModal.category')}</Label>
+              <CustomSelect 
+                value={category} 
+                onValueChange={setCategory} 
+                placeholder={t('newsPage.addNewsModal.selectCategory')}
+                className="border-orange-200 focus:border-orange-400 bg-white"
+              >
+                <div value="celebration">{t('newsPage.categories.celebration')}</div>
+                <div value="achievement">{t('newsPage.categories.achievement')}</div>
+                <div value="announcement">{t('newsPage.categories.announcement')}</div>
+                <div value="tradition">{t('newsPage.categories.tradition')}</div>
+                <div value="milestone">{t('newsPage.categories.milestone')}</div>
+                <div value="reunion">{t('newsPage.categories.reunion')}</div>
+                <div value="memory">{t('newsPage.categories.memory')}</div>
+                <div value="general">{t('newsPage.categories.general')}</div>
+              </CustomSelect>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="priority" className="text-orange-900">{t('newsPage.addNewsModal.priority')}</Label>
+              <CustomSelect
+                value={priority}
+                onValueChange={setPriority}
+                placeholder={t('newsPage.addNewsModal.selectPriority')}
+                className="border-orange-200 focus:border-orange-400 bg-white"
+              >
+                <div value="high">{t('newsPage.priorityOptions.high')}</div>
+                <div value="medium">{t('newsPage.priorityOptions.medium')}</div>
+                <div value="low">{t('newsPage.priorityOptions.low')}</div>
+              </CustomSelect>
+            </div>
           </div>
           
           <div className="space-y-2">
             <div className="flex justify-between items-center">
               <Label htmlFor="content" className="text-orange-900">{t('newsPage.addNewsModal.content')}</Label>
-              <span className="text-sm text-orange-600">{content.length}/500</span>
+              <span className="text-sm text-orange-600">{content.length}/1000</span>
             </div>
             <Textarea
               id="content"
               value={content}
               onChange={(e) => setContent(e.target.value)}
               placeholder={t('newsPage.addNewsModal.contentPlaceholder')}
-              className="border-orange-200 focus:border-orange-400 bg-white min-h-[100px]"
-              maxLength={500}
+              className="border-orange-200 focus:border-orange-400 bg-white min-h-[140px]"
+              maxLength={1000}
               required
             />
           </div>
-
-          {/* Additional Details Section */}
-          <div className="border-t border-orange-200 pt-4">
-            <h3 className="text-lg font-semibold text-orange-900 mb-4">Additional Details</h3>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Author */}
-              <div className="space-y-2">
-                <Label htmlFor="author" className="text-orange-900">Author/Reporter</Label>
-                <Input
-                  id="author"
-                  value={author}
-                  onChange={(e) => setAuthor(e.target.value)}
-                  placeholder="Your name or who is sharing this story"
-                  className="border-orange-200 focus:border-orange-400 bg-white"
-                />
-              </div>
-
-              {/* Location */}
-              <div className="space-y-2">
-                <Label htmlFor="location" className="text-orange-900">Location</Label>
-                <Input
-                  id="location"
-                  value={location}
-                  onChange={(e) => setLocation(e.target.value)}
-                  placeholder="Where did this happen? (e.g., Mumbai, India)"
-                  className="border-orange-200 focus:border-orange-400 bg-white"
-                />
-              </div>
-
-              {/* Event Date */}
-              <div className="space-y-2">
-                <Label htmlFor="eventDate" className="text-orange-900">Event Date</Label>
-                <Input
-                  id="eventDate"
-                  type="date"
-                  value={eventDate}
-                  onChange={(e) => setEventDate(e.target.value)}
-                  className="border-orange-200 focus:border-orange-400 bg-white"
-                />
-              </div>
-            </div>
-
-            {/* Tags */}
-            <div className="space-y-2 mt-4">
-              <Label htmlFor="tags" className="text-orange-900">Tags</Label>
-              <Input
-                id="tags"
-                value={tags}
-                onChange={(e) => setTags(e.target.value)}
-                placeholder="Enter tags separated by commas (e.g., wedding, celebration, achievement)"
-                className="border-orange-200 focus:border-orange-400 bg-white"
-              />
-              <p className="text-xs text-orange-600">Tags help others find your story easily</p>
-            </div>
-
-          </div>
           
-          {/* Image Upload Section */}
-          <div className="space-y-4">
-            <Label className="text-orange-900">Add Image</Label>
-            
-            {/* Image Preview */}
-            {imagePreview && (
-              <div className="relative">
-                <img 
-                  src={imagePreview} 
-                  alt="Preview" 
-                  className="w-full h-48 object-cover rounded-lg border border-orange-200"
-                />
-                <button
-                  type="button"
-                  onClick={handleRemoveImage}
-                  className="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600 transition-colors"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            )}
-            
-            {/* Upload Options */}
-            <div className="flex flex-col sm:flex-row gap-3">
-              {/* File Upload */}
-              <div className="flex-1">
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  onChange={handleImageUpload}
-                  className="hidden"
-                  id="imageUpload"
+
+
+          <div className="space-y-2">
+            <Label className="text-orange-900">Allowed Vansh Numbers</Label>
+            <div className="flex items-center gap-3">
+              <input
+                id="allVansh"
+                type="checkbox"
+                checked={isAllVanshSelected}
+                onChange={handleToggleAllVansh}
+                className="h-4 w-4 rounded border-orange-300 text-orange-600 focus:ring-2 focus:ring-orange-500"
+              />
+              <Label htmlFor="allVansh" className="text-orange-800 font-medium">Visible to all vansh</Label>
+            </div>
+            {!isAllVanshSelected && (
+              <div className="flex flex-col sm:flex-row gap-3">
+                <Input
+                  value={vanshInput}
+                  onChange={(e) => setVanshInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleAddVanshNumbers();
+                    }
+                  }}
+                  placeholder="Add vansh numbers (e.g., 1, 2, 3)"
+                  className="border-orange-200 focus:border-orange-400 bg-white"
                 />
                 <Button
                   type="button"
-                  variant="outline"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="w-full border-orange-300 text-orange-700 hover:bg-orange-100"
+                  onClick={handleAddVanshNumbers}
+                  className="bg-orange-500 hover:bg-orange-600 text-white"
                 >
-                  <Upload className="w-4 h-4 mr-2" />
-                  Upload Image
+                  Add
                 </Button>
               </div>
-              
-              {/* OR Divider */}
-              <div className="flex items-center justify-center text-orange-500 font-medium">
-                OR
+            )}
+            {isAllVanshSelected && (
+              <div className="bg-amber-100 text-amber-800 px-3 py-2 rounded-lg text-sm font-medium">All vansh will be able to view this news</div>
+            )}
+            {!isAllVanshSelected && visibleVansh.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {visibleVansh.map((number) => (
+                  <span key={number} className="flex items-center bg-amber-100 text-amber-800 px-3 py-1 rounded-full text-sm">
+                    #{number}
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveVanshNumber(number)}
+                      className="ml-2 text-amber-600 hover:text-amber-800"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                ))}
               </div>
-              
-              {/* URL Input */}
-              <div className="flex-1">
-                <Input
-                  type="url"
-                  value={imageUrl}
-                  onChange={(e) => setImageUrl(e.target.value)}
-                  placeholder="Paste image URL"
-                  className="border-orange-200 focus:border-orange-400 bg-white"
-                />
-              </div>
+            )}
+          </div>
+          
+          <div className="space-y-6">
+            <div className="space-y-2">
+              <Label className="text-orange-900">Feature Image Upload</Label>
+              {mainImagePreview && (
+                <div className="relative">
+                  <img
+                    src={mainImagePreview}
+                    alt="Feature preview"
+                    className="w-full h-48 object-cover rounded-lg border border-orange-200"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleRemoveMainImage}
+                    className="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600 transition-colors"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleMainImageUpload}
+                className="hidden"
+                id="featureImageUpload"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => fileInputRef.current?.click()}
+                className="w-full border-orange-300 text-orange-700 hover:bg-orange-100"
+              >
+                <Upload className="w-4 h-4 mr-2" />
+                Upload Feature Image
+              </Button>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="imageCaption" className="text-orange-900">{t('newsPage.addNewsModal.imageCaption')}</Label>
+              <Input
+                id="imageCaption"
+                value={imageCaption}
+                onChange={(e) => setImageCaption(e.target.value)}
+                placeholder={t('newsPage.addNewsModal.imageCaption')}
+                className="border-orange-200 focus:border-orange-400 bg-white"
+              />
             </div>
           </div>
           

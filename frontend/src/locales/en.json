@@ -107,16 +107,46 @@
     "noNewsDescription": "No news available matching your search criteria.",
     "addNewsModal": {
       "title": "Share Family News",
-      "newsTitle": "News Title",
-      "newsTitlePlaceholder": "What's the news about?",
+      "newsTitle": "Headline",
+      "newsTitlePlaceholder": "What's the headline?",
+      "summary": "Summary",
+      "summaryPlaceholder": "Provide a short summary of the news",
+      "content": "Full Content",
+      "contentPlaceholder": "Write the full story...",
       "category": "Category",
       "selectCategory": "Select news category",
-      "content": "News Content",
-      "contentPlaceholder": "Share the details of your family news...",
-      "imageUrl": "Image URL (Optional)",
+      "priority": "Priority",
+      "selectPriority": "Select priority level",
+      "publishDate": "Publish Date",
+      "imageUrl": "Main Image URL",
       "imageUrlPlaceholder": "https://example.com/image.jpg",
+      "thumbnailUrl": "Thumbnail URL",
+      "thumbnailUrlPlaceholder": "https://example.com/thumb.jpg",
+      "imageCaption": "Image Caption",
+      "tags": "Tags",
+      "tagsPlaceholder": "Add tags separated by commas",
       "cancel": "Cancel",
       "shareNews": "Share News"
+    },
+    "filters": {
+      "searchPlaceholder": "Search news...",
+      "category": "Category",
+      "priority": "Priority",
+      "author": "Author",
+      "date": "Publish Date"
+    },
+    "table": {
+      "headline": "Headline",
+      "category": "Category",
+      "priority": "Priority",
+      "publishDate": "Publish Date",
+      "author": "Author",
+      "actions": "Actions"
+    },
+    "priorityOptions": {
+      "high": "High",
+      "medium": "Medium",
+      "low": "Low"
     },
     "sampleNews": {
       "annualMeeting": {
