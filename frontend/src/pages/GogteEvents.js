@@ -14,6 +14,7 @@ export default function GogteEventsPage() {
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showAddEventModal, setShowAddEventModal] = useState(false);
   const [events, setEvents] = useState([]);
+  const [memberDirectory, setMemberDirectory] = useState(new Map());
   const [isFetchingEvents, setIsFetchingEvents] = useState(false);
   const [newEventData, setNewEventData] = useState({
     eventName: '',
@@ -25,6 +26,11 @@ export default function GogteEventsPage() {
     priority: 'Medium',
     description: '',
     venue: '',
+    venueStreet: '',
+    city: '',
+    state: '',
+    pincode: '',
+    country: 'India',
     address: '',
     visibleToAllVansh: true,
     visibleVanshNumbers: '',
@@ -36,6 +42,73 @@ export default function GogteEventsPage() {
   const scrollerRef = useRef(null);
   const [familyCelebrations, setFamilyCelebrations] = useState({ birthdays: [], anniversaries: [] });
   const [isFetchingCelebrations, setIsFetchingCelebrations] = useState(false);
+
+  const normalizeText = (value) => (value === undefined || value === null ? '' : String(value).trim());
+  const hasLocationValue = (value) => normalizeText(value).length > 0;
+
+  const resolveEventImageSource = (value) => {
+    if (!value) {
+      return null;
+    }
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      return trimmed || null;
+    }
+    if (typeof value === 'object') {
+      if (typeof value.dataUrl === 'string') {
+        const trimmed = value.dataUrl.trim();
+        if (trimmed) {
+          return trimmed;
+        }
+      }
+      const direct = normalizeText(value.url || value.imageUrl);
+      if (direct) {
+        return direct;
+      }
+      if (typeof value.data === 'string' && value.data) {
+        const type = normalizeText(value.mimetype) || 'image/png';
+        return `data:${type};base64,${value.data}`;
+      }
+    }
+    return null;
+  };
+
+  const normalizeEventRecord = (event) => {
+    if (!event) {
+      return null;
+    }
+    const normalized = {
+      ...event,
+      id: event._id || event.id,
+      eventName: event.title || event.eventName || 'Untitled Event',
+      eventImage: resolveEventImageSource(event.eventImage || event.image || event.imageUrl || event.eventImageUrl),
+      fromDate: event.fromDate || event.date,
+      toDate: event.toDate || event.date,
+      venueStreet: event.venueStreet || '',
+      city: event.city || '',
+      state: event.state || '',
+      pincode: event.pincode || '',
+      country: event.country || event.locationCountry || '',
+    };
+
+    if (normalized.createdByName && normalized.createdByName.trim() === '') {
+      normalized.createdByName = null;
+    }
+
+    if (normalized.createdBySerNo !== undefined && normalized.createdBySerNo !== null) {
+      const lookupKey = normalized.createdBySerNo;
+      if (memberDirectory.has(lookupKey)) {
+        normalized.createdByName = memberDirectory.get(lookupKey);
+      } else {
+        const stringKey = String(lookupKey);
+        if (memberDirectory.has(stringKey)) {
+          normalized.createdByName = memberDirectory.get(stringKey);
+        }
+      }
+    }
+
+    return normalized;
+  };
 
   useEffect(() => {
     let isMounted = true;
@@ -80,18 +153,22 @@ export default function GogteEventsPage() {
             : Array.isArray(data?.events)
             ? data.events
             : [];
-          
-          // Normalize events to include eventImage as dataUrl
-          const normalizedEvents = eventsList.map(event => ({
-            ...event,
-            id: event._id || event.id, // Map MongoDB _id to id
-            eventName: event.title || event.eventName || 'Untitled Event', // Map title to eventName
-            eventImage: event.eventImage?.dataUrl || null,
-            fromDate: event.fromDate || event.date, // Fallback for backward compatibility
-            toDate: event.toDate || event.date,      // Fallback for backward compatibility
-          }));
-          
+
+          const normalizedEvents = eventsList
+            .map((event) => normalizeEventRecord(event))
+            .filter(Boolean);
+
           setEvents(normalizedEvents);
+
+          const directory = new Map();
+          normalizedEvents.forEach((event) => {
+            if (!event) return;
+            if (event.createdBySerNo !== undefined && event.createdBySerNo !== null && event.createdByName) {
+              directory.set(event.createdBySerNo, event.createdByName);
+              directory.set(String(event.createdBySerNo), event.createdByName);
+            }
+          });
+          setMemberDirectory(directory);
         }
       } catch (error) {
         console.error('Error fetching events:', error);
@@ -209,6 +286,35 @@ export default function GogteEventsPage() {
     return date.toLocaleString();
   };
 
+  const formatLocationDetails = (event) => {
+    if (!event) return '';
+    const parts = [event.venueStreet, event.city, event.state, event.pincode, event.country]
+      .map((part) => normalizeText(part))
+      .filter(Boolean);
+    return parts.join(', ');
+  };
+
+  const detailLocationSummary = selectedEvent ? formatLocationDetails(selectedEvent) : '';
+  const detailLocationItems = selectedEvent
+    ? [
+        { label: 'Street', value: selectedEvent.venueStreet },
+        { label: 'City', value: selectedEvent.city },
+        { label: 'State', value: selectedEvent.state },
+        { label: 'Pincode', value: selectedEvent.pincode },
+        { label: 'Country', value: selectedEvent.country },
+        { label: 'Address', value: selectedEvent.address }
+      ].filter((entry) => hasLocationValue(entry.value))
+    : [];
+  const venueDisplay = selectedEvent
+    ? hasLocationValue(selectedEvent.venue)
+      ? selectedEvent.venue
+      : hasLocationValue(detailLocationSummary)
+      ? detailLocationSummary
+      : hasLocationValue(selectedEvent?.address)
+      ? selectedEvent.address
+      : 'TBD'
+    : 'TBD';
+
   const filteredEvents = useMemo(() => {
     return events.filter((item) => {
       // Exclude auto-generated events from "All Events" section
@@ -231,7 +337,12 @@ export default function GogteEventsPage() {
         item.eventName,
         item.description,
         item.venue,
-        item.address
+        item.address,
+        item.venueStreet,
+        item.city,
+        item.state,
+        item.pincode,
+        item.country
       ].some((value) => String(value || '').toLowerCase().includes(searchTerm.toLowerCase()));
 
       return matchesEventType && matchesPriority && matchesMonth && matchesSearch;
@@ -336,8 +447,15 @@ export default function GogteEventsPage() {
   })();
 
   const handleEventClick = (event) => {
-    setSelectedEvent(event);
-    setShowDetailModal(true);
+    const normalized = normalizeEventRecord(event);
+    if (normalized) {
+      if (normalized.createdBySerNo !== undefined && normalized.createdBySerNo !== null && normalized.createdByName) {
+        memberDirectory.set(normalized.createdBySerNo, normalized.createdByName);
+        memberDirectory.set(String(normalized.createdBySerNo), normalized.createdByName);
+      }
+      setSelectedEvent(normalized);
+      setShowDetailModal(true);
+    }
   };
 
   const scroll = (direction) => {
@@ -400,6 +518,15 @@ export default function GogteEventsPage() {
         return;
       }
 
+      const derivedAddressParts = [
+        newEventData.venueStreet,
+        newEventData.city,
+        newEventData.state,
+        newEventData.pincode,
+        newEventData.country
+      ].map((part) => (part ? String(part).trim() : '')).filter(Boolean);
+      const normalizedAddress = newEventData.address || derivedAddressParts.join(', ');
+
       // Create FormData to handle image upload
       const formData = new FormData();
       formData.append('title', newEventData.eventName);
@@ -411,7 +538,12 @@ export default function GogteEventsPage() {
       formData.append('priority', newEventData.priority);
       formData.append('description', newEventData.description);
       formData.append('venue', newEventData.venue);
-      formData.append('address', newEventData.address);
+      formData.append('venueStreet', newEventData.venueStreet);
+      formData.append('city', newEventData.city);
+      formData.append('state', newEventData.state);
+      formData.append('pincode', newEventData.pincode);
+      formData.append('country', newEventData.country);
+      formData.append('address', normalizedAddress);
       formData.append('visibleToAllVansh', newEventData.visibleToAllVansh);
       formData.append('visibleVanshNumbers', newEventData.visibleVanshNumbers);
       formData.append('visibilityOption', newEventData.visibleToAllVansh ? 'all' : 'specific');
@@ -455,14 +587,9 @@ export default function GogteEventsPage() {
           : [];
         
         // Normalize events to include eventImage as dataUrl
-        const normalizedEvents = eventsList.map(event => ({
-          ...event,
-          id: event._id || event.id, // Map MongoDB _id to id
-          eventName: event.title || event.eventName || 'Untitled Event', // Map title to eventName
-          eventImage: event.eventImage?.dataUrl || null,
-          fromDate: event.fromDate || event.date,
-          toDate: event.toDate || event.date,
-        }));
+        const normalizedEvents = eventsList
+          .map((event) => normalizeEventRecord(event))
+          .filter(Boolean);
         
         setEvents(normalizedEvents);
       }
@@ -478,6 +605,11 @@ export default function GogteEventsPage() {
         priority: 'Medium',
         description: '',
         venue: '',
+        venueStreet: '',
+        city: '',
+        state: '',
+        pincode: '',
+        country: 'India',
         address: '',
         visibleToAllVansh: true,
         visibleVanshNumbers: '',
@@ -609,65 +741,55 @@ export default function GogteEventsPage() {
               className="flex gap-4 overflow-x-auto pb-4 scroll-smooth"
               style={{ scrollBehavior: 'smooth', WebkitOverflowScrolling: 'touch' }}
             >
-              {featuredEvents.map((event) => (
-                <div
-                  key={event.id}
-                  onClick={() => handleEventClick(event)}
-                  className="flex-shrink-0 w-64 bg-white rounded-lg shadow-md border border-orange-200 overflow-hidden cursor-pointer hover:shadow-lg transition-shadow duration-300"
-                >
-                  <div className="h-32 bg-gradient-to-br from-amber-100 to-orange-200 relative overflow-hidden">
-                    {event.eventImage ? (
-                      <img 
-                        src={event.eventImage} 
-                        alt={event.eventName}
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <div className="flex items-center justify-center h-full text-4xl">
-                        🎉
+              {featuredEvents.map((event) => {
+                const locationLabel = formatLocationDetails(event) || event.venue || event.address || 'TBD';
+                return (
+                  <div
+                    key={event.id}
+                    onClick={() => handleEventClick(event)}
+                    className="flex-shrink-0 w-64 bg-white rounded-lg shadow-md border border-orange-200 overflow-hidden cursor-pointer hover:shadow-lg transition-shadow duration-300"
+                  >
+                    <div className="p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="bg-amber-500 text-white px-2 py-0.5 rounded-full text-xs font-medium">
+                          {event.eventType || 'Event'}
+                        </span>
+                        {event.priority && (
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-bold text-white ${
+                            event.priority?.toLowerCase() === 'high'
+                              ? 'bg-red-600'
+                              : event.priority?.toLowerCase() === 'medium'
+                                ? 'bg-yellow-500'
+                                : 'bg-green-500'
+                          }`}>
+                            {event.priority}
+                          </span>
+                        )}
                       </div>
-                    )}
-                    <div className="absolute top-2 left-2">
-                      <span className="bg-amber-500 text-white px-2 py-0.5 rounded-full text-xs font-medium">
-                        {event.eventType || 'Event'}
-                      </span>
-                    </div>
-                    {event.priority && (
-                      <div className={`absolute top-2 right-2 px-2 py-0.5 rounded-full text-xs font-bold text-white ${
-                        event.priority?.toLowerCase() === 'high'
-                          ? 'bg-red-600'
-                          : event.priority?.toLowerCase() === 'medium'
-                            ? 'bg-yellow-500'
-                            : 'bg-green-500'
-                      }`}>
-                        {event.priority}
+
+                      <h3 className="text-sm font-bold text-amber-800 mb-1 line-clamp-2">
+                        {event.eventName}
+                      </h3>
+                      {event.description && (
+                        <p className="text-amber-700 text-xs mb-3 line-clamp-1">
+                          {event.description}
+                        </p>
+                      )}
+
+                      <div className="flex items-center justify-between text-xs text-amber-600">
+                        <span className="flex items-center">
+                          <MapPin className="w-3 h-3 mr-1" />
+                          {locationLabel}
+                        </span>
+                        <span className="flex items-center">
+                          <Clock className="w-3 h-3 mr-1" />
+                          {formatDate(event.fromDate || event.date)}
+                        </span>
                       </div>
-                    )}
-                  </div>
-
-                  <div className="p-3">
-                    <h3 className="text-sm font-bold text-amber-800 mb-1 line-clamp-2">
-                      {event.eventName}
-                    </h3>
-                    {event.description && (
-                      <p className="text-amber-700 text-xs mb-3 line-clamp-1">
-                        {event.description}
-                      </p>
-                    )}
-
-                    <div className="flex items-center justify-between text-xs text-amber-600">
-                      <span className="flex items-center">
-                        <MapPin className="w-3 h-3 mr-1" />
-                        {event.venue || 'TBD'}
-                      </span>
-                      <span className="flex items-center">
-                        <Clock className="w-3 h-3 mr-1" />
-                        {formatDate(event.fromDate || event.date)}
-                      </span>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
@@ -698,7 +820,21 @@ export default function GogteEventsPage() {
             )}
             {celebrationHighlights.map((item, index) => {
               const IconComponent = item.category === 'birthday' ? Gift : item.category === 'anniversary' ? Heart : Bell;
-              const name = item?.name || item?.title || item?.fullName || 'Family Member';
+              const baseName = item?.name || item?.title || item?.fullName || 'Family Member';
+              const isAnniversary = item.category === 'anniversary';
+              const coupleName = isAnniversary && item.name ? item.name : baseName;
+              const subtitle = isAnniversary
+                ? item.primaryName && item.spouseName
+                  ? `Wedding anniversary is coming up for ${item.primaryName} and ${item.spouseName}.`
+                  : 'Wedding anniversary is coming up.'
+                : item.category
+                  ? item.category.charAt(0).toUpperCase() + item.category.slice(1)
+                  : 'Celebration';
+              const statusLabel = isAnniversary
+                ? Number.isFinite(item.yearsMarried)
+                  ? `${item.yearsMarried} Years`
+                  : 'Anniversary'
+                : 'Upcoming';
               return (
                 <div key={index} className="border border-amber-200 rounded-xl p-4 bg-gradient-to-br from-amber-50 to-orange-100 flex flex-col gap-3">
                   <div className="flex items-center gap-3">
@@ -706,8 +842,8 @@ export default function GogteEventsPage() {
                       <IconComponent className="w-5 h-5 text-amber-600" />
                     </div>
                     <div>
-                      <p className="text-sm font-semibold text-amber-800">{name}</p>
-                      <p className="text-xs text-amber-600 capitalize">{item.category}</p>
+                      <p className="text-sm font-semibold text-amber-800">{coupleName}</p>
+                      <p className={`text-xs text-amber-600 ${isAnniversary ? '' : 'capitalize'}`}>{subtitle}</p>
                     </div>
                   </div>
                   <div className="flex items-center justify-between text-sm text-amber-700">
@@ -715,7 +851,7 @@ export default function GogteEventsPage() {
                       <Calendar className="w-4 h-4" />
                       {formatDate(item.date)}
                     </span>
-                    <span className="text-xs font-semibold text-amber-500 uppercase tracking-wide">Upcoming</span>
+                    <span className="text-xs font-semibold text-amber-500 uppercase tracking-wide">{statusLabel}</span>
                   </div>
                 </div>
               );
@@ -731,6 +867,7 @@ export default function GogteEventsPage() {
             filteredEvents.map((event) => {
               const dateLabel = formatDate(event.date);
               const timeDisplay = event.time || 'To be announced';
+              const locationSummary = formatLocationDetails(event) || event.venue || event.address || 'Venue TBD';
 
               return (
                 <div
@@ -738,29 +875,33 @@ export default function GogteEventsPage() {
                   onClick={() => handleEventClick(event)}
                   className="bg-white rounded-xl shadow-sm border border-orange-200 overflow-hidden cursor-pointer hover:shadow-lg transition-shadow duration-300 flex flex-col"
                 >
-                  <div className="relative h-40 bg-gradient-to-br from-amber-100 to-orange-200">
-                    <div className="flex items-center justify-center h-full text-5xl">
-                      🎉
+                  {event.eventImage && (
+                    <div className="relative h-40 bg-gradient-to-br from-amber-100 to-orange-200 overflow-hidden">
+                      <img
+                        src={event.eventImage}
+                        alt={event.eventName}
+                        className="w-full h-full object-cover"
+                      />
                     </div>
-                    <div className="absolute top-3 left-3">
+                  )}
+
+                  <div className="p-6 flex flex-col gap-4 flex-1">
+                    <div className="flex items-start justify-between gap-2">
                       <span className="bg-amber-500 text-white px-3 py-1 rounded-full text-sm font-medium">
                         {event.eventType || 'Event'}
                       </span>
+                      {event.priority && (
+                        <span className={`px-3 py-1 rounded-full text-xs font-bold text-white ${
+                          event.priority?.toLowerCase() === 'high'
+                            ? 'bg-red-600'
+                            : event.priority?.toLowerCase() === 'medium'
+                              ? 'bg-yellow-500'
+                              : 'bg-green-500'
+                        }`}>
+                          {event.priority}
+                        </span>
+                      )}
                     </div>
-                    {event.priority && (
-                      <div className={`absolute top-3 right-3 px-3 py-1 rounded-full text-xs font-bold text-white ${
-                        event.priority?.toLowerCase() === 'high'
-                          ? 'bg-red-600'
-                          : event.priority?.toLowerCase() === 'medium'
-                            ? 'bg-yellow-500'
-                            : 'bg-green-500'
-                      }`}>
-                        {event.priority}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="p-6 flex flex-col gap-4 flex-1">
                     <div>
                       <h3 className="text-xl font-bold text-amber-800 mb-2 line-clamp-2">
                         {event.eventName}
@@ -832,19 +973,16 @@ export default function GogteEventsPage() {
 
             {/* Modal Content */}
             <div className="p-6">
-              {/* Event Image if available */}
-              {selectedEvent.eventImage && (
-                <div className="mb-6 rounded-lg overflow-hidden border border-orange-200">
-                  <img 
-                    src={selectedEvent.eventImage} 
-                    alt={selectedEvent.eventName}
-                    className="w-full h-80 object-cover"
-                  />
-                </div>
-              )}
-
               <div className="mb-6">
-                <h1 className="text-3xl font-bold text-amber-800 mb-4">{selectedEvent.eventName}</h1>
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
+                  <h1 className="text-3xl font-bold text-amber-800">{selectedEvent.eventName}</h1>
+                  {selectedEvent.createdByName && (
+                    <span className="inline-flex items-center gap-2 px-4 py-2 bg-amber-100 text-amber-800 rounded-full text-sm font-semibold">
+                      <User className="w-4 h-4" />
+                      Posted by {selectedEvent.createdByName}
+                    </span>
+                  )}
+                </div>
 
                 {/* Date and Time Information */}
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
@@ -885,7 +1023,7 @@ export default function GogteEventsPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                   <span className="flex items-center gap-2 text-amber-700">
                     <MapPin className="w-5 h-5" />
-                    <strong>Venue:</strong> {selectedEvent.venue || 'TBD'}
+                    <strong>Venue:</strong> {venueDisplay}
                   </span>
                   {selectedEvent?.priority && (
                     <span className="flex items-center gap-2 text-amber-700">
@@ -895,11 +1033,13 @@ export default function GogteEventsPage() {
                   )}
                 </div>
 
-                {selectedEvent.address && (
-                  <div className="mb-4 p-4 bg-amber-50 rounded-lg border border-amber-200">
-                    <p className="text-sm text-amber-700">
-                      <strong>Address:</strong> {selectedEvent.address}
-                    </p>
+                {detailLocationItems.length > 0 && (
+                  <div className="mb-4 p-4 bg-amber-50 rounded-lg border border-amber-200 grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {detailLocationItems.map((item, index) => (
+                      <span key={index} className="text-sm text-amber-700">
+                        <strong>{item.label}:</strong> {item.value}
+                      </span>
+                    ))}
                   </div>
                 )}
 
@@ -929,6 +1069,16 @@ export default function GogteEventsPage() {
                   <p className="text-sm text-green-800">
                     <strong>✓ Visible to All Vanshes</strong>
                   </p>
+                </div>
+              )}
+
+              {selectedEvent.eventImage && (
+                <div className="mt-6 rounded-lg overflow-hidden border border-orange-200">
+                  <img
+                    src={selectedEvent.eventImage}
+                    alt={selectedEvent.eventName}
+                    className="w-full h-80 object-cover"
+                  />
                 </div>
               )}
             </div>
@@ -1037,23 +1187,74 @@ export default function GogteEventsPage() {
                 </select>
               </div>
 
-              {/* Venue & Address */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-semibold text-amber-700 mb-1">Venue</label>
-                  <input
-                    value={newEventData.venue}
-                    onChange={handleNewEventChange('venue')}
-                    placeholder="Enter venue name"
-                    className="w-full px-4 py-2 border border-orange-200 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent"
-                  />
+              {/* Venue & Location */}
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-semibold text-amber-700 mb-1">Venue Name</label>
+                    <input
+                      value={newEventData.venue}
+                      onChange={handleNewEventChange('venue')}
+                      placeholder="Enter venue name"
+                      className="w-full px-4 py-2 border border-orange-200 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-amber-700 mb-1">Venue Street</label>
+                    <input
+                      value={newEventData.venueStreet}
+                      onChange={handleNewEventChange('venueStreet')}
+                      placeholder="Street address"
+                      className="w-full px-4 py-2 border border-orange-200 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-semibold text-amber-700 mb-1">City</label>
+                    <input
+                      value={newEventData.city}
+                      onChange={handleNewEventChange('city')}
+                      placeholder="City"
+                      className="w-full px-4 py-2 border border-orange-200 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-amber-700 mb-1">State</label>
+                    <input
+                      value={newEventData.state}
+                      onChange={handleNewEventChange('state')}
+                      placeholder="State"
+                      className="w-full px-4 py-2 border border-orange-200 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-semibold text-amber-700 mb-1">Pincode</label>
+                    <input
+                      value={newEventData.pincode}
+                      onChange={handleNewEventChange('pincode')}
+                      placeholder="Postal code"
+                      className="w-full px-4 py-2 border border-orange-200 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-amber-700 mb-1">Country</label>
+                    <input
+                      value={newEventData.country}
+                      onChange={handleNewEventChange('country')}
+                      placeholder="Country"
+                      className="w-full px-4 py-2 border border-orange-200 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+                    />
+                  </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-semibold text-amber-700 mb-1">Address</label>
+                  <label className="block text-sm font-semibold text-amber-700 mb-1">Address (Optional)</label>
                   <input
                     value={newEventData.address}
                     onChange={handleNewEventChange('address')}
-                    placeholder="Enter address"
+                    placeholder="Apartment, landmark, or additional details"
                     className="w-full px-4 py-2 border border-orange-200 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent"
                   />
                 </div>
