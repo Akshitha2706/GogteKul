@@ -1,0 +1,282 @@
+import React from 'react';
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { AuthProvider } from './context/AuthContext';
+import { LanguageProvider } from './context/LanguageContext';
+import { AccessibilityProvider } from './context/AccessibilityContext';
+import { LoadingProvider } from './context/LoadingContext';
+import { ToastProvider } from './context/ToastContext';
+import './i18n'; // Initialize i18n
+import './styles/accessibility.css'; // Import accessibility styles
+import Navbar from './components/layout/NavbarWithDropdown';
+import BackgroundDecorations from './components/layout/BackgroundDecorations';
+import AccessibilityToolbar from './components/accessibility/AccessibilityToolbar';
+import SkipToContent from './components/accessibility/SkipToContent';
+import KeyboardShortcuts from './components/accessibility/KeyboardShortcuts';
+import AccessibilityNotification from './components/accessibility/AccessibilityNotification';
+import SiteFooter from './components/layout/SiteFooter';
+import Home from './pages/Home';
+import About from './pages/About';
+import Media from './pages/Media';
+import Login from './pages/Login';
+import FamilyFormPage from './pages/FamilyFormPage';
+import Dashboard from './pages/Dashboard';
+import LoginConfirmed from './pages/LoginConfirmed';
+import FamilyTree from './pages/FamilyTree';
+import News from './pages/News';
+import Events from './pages/Events';
+import Profile from './pages/Profile';
+import YogeshwariDevi from './pages/YogeshwariDevi';
+import VyadeshwarTemple from './pages/VyadeshwarTemple';
+import LoaderDemo from './components/common/LoaderDemo';
+import LoaderUsageExample from './components/common/LoaderUsageExample';
+import LoadingEffectsDemo from './pages/LoadingEffectsDemo';
+import PDFExportDemo from './pages/PDFExportDemo';
+import QuickLoader from './components/common/QuickLoader';
+import PageLifecycleLoader from './components/common/PageLifecycleLoader';
+import PrivateRoute from './components/routing/PrivateRoute';
+
+// New Family Tree Components
+import FamilyListPage from './pages/FamilyListPage';
+import FamilyMemberPage from './pages/FamilyMemberPage';
+import FamilyChildrenPage from './pages/FamilyChildrenPage';
+import FamilyTreeComponent from './components/family/FamilyTree';
+import SeedDataPage from './pages/SeedDataPage';
+import ApiTestPage from './pages/ApiTestPage';
+import RawDataPage from './pages/RawDataPage';
+import NewFeaturesShowcase from './pages/NewFeaturesShowcase';
+import RelationshipsPage from './pages/RelationshipsPage';
+import AdminRelationsPage from './pages/AdminRelationsPage';
+import RelationshipTestPage from './pages/RelationshipTestPage';
+import ComprehensiveFamilyTree from './components/family/ComprehensiveFamilyTree';
+import FmemFamilyTree from './components/family/FmemFamilyTree';
+import HorizontalFmemTree from './components/family/HorizontalFmemTree';
+import AdminDashboard from './pages/AdminDashboard';
+import AdminRoute from './components/routing/AdminRoute';
+
+function App() {
+  return (
+    <AccessibilityProvider>
+      <LanguageProvider>
+        <AuthProvider>
+          <ToastProvider>
+            <Router>
+              <LoadingProvider>
+              <QuickLoader>
+                <div className="min-h-screen bg-white relative">
+                  {/* Page Lifecycle Loader - Temporarily disabled */}
+                  {/* <PageLifecycleLoader /> */}
+                  
+                  {/* Skip to content link for keyboard navigation */}
+                  <SkipToContent />
+                  <KeyboardShortcuts />
+                  <BackgroundDecorations />
+                  <Navbar />
+                  <AccessibilityToolbar />
+                  <AccessibilityNotification />
+          <Routes>
+            <Route path="/" element={<div id="main-content"><Home /></div>} />
+            <Route path="/about" element={
+              <main id="main-content" className="container mx-auto px-3 xs:px-4 sm:px-6 lg:px-8 pt-20 xs:pt-24 sm:pt-28 pb-6 xs:pb-8 relative z-10">
+                <About />
+              </main>
+            } />
+            <Route path="/media" element={
+              <main id="main-content" className="container mx-auto px-3 xs:px-4 sm:px-6 lg:px-8 pt-20 xs:pt-24 sm:pt-28 pb-6 xs:pb-8 relative z-10">
+                <PrivateRoute>
+                  <Media />
+                </PrivateRoute>
+              </main>
+            } />
+            <Route path="/news" element={
+              <main id="main-content" className="container mx-auto px-3 xs:px-4 sm:px-6 lg:px-8 pt-20 xs:pt-24 sm:pt-28 pb-6 xs:pb-8 relative z-10">
+                <PrivateRoute>
+                  <News />
+                </PrivateRoute>
+              </main>
+            } />
+            <Route path="/events" element={
+              <main id="main-content" className="container mx-auto px-3 xs:px-4 sm:px-6 lg:px-8 pt-20 xs:pt-24 sm:pt-28 pb-6 xs:pb-8 relative z-10">
+                <PrivateRoute>
+                  <Events />
+                </PrivateRoute>
+              </main>
+            } />
+            <Route path="/login" element={
+              <main id="main-content" className="container mx-auto px-3 xs:px-4 sm:px-6 lg:px-8 pt-20 xs:pt-24 sm:pt-28 pb-6 xs:pb-8 relative z-10">
+                <Login />
+              </main>
+            } />
+            <Route path="/login-confirmed" element={
+              <main id="main-content" className="container mx-auto px-3 xs:px-4 sm:px-6 lg:px-8 pt-20 xs:pt-24 sm:pt-28 pb-6 xs:pb-8 relative z-10">
+                <LoginConfirmed />
+              </main>
+            } />
+            <Route path="/family-form" element={
+              <main id="main-content" className="container mx-auto px-3 xs:px-4 sm:px-6 lg:px-8 pt-20 xs:pt-24 sm:pt-28 pb-6 xs:pb-8 relative z-10">
+                <FamilyFormPage />
+              </main>
+            } />
+            <Route path="/dashboard" element={
+              <main id="main-content" className="container mx-auto px-3 xs:px-4 sm:px-6 lg:px-8 pt-20 xs:pt-24 sm:pt-28 pb-6 xs:pb-8 relative z-10">
+                <PrivateRoute>
+                  <Dashboard />
+                </PrivateRoute>
+              </main>
+            } />
+            <Route path="/family-tree" element={
+              <main id="main-content" className="container mx-auto px-3 xs:px-4 sm:px-6 lg:px-8 pt-20 xs:pt-24 sm:pt-28 pb-6 xs:pb-8 relative z-10">
+                <PrivateRoute>
+                  <FamilyTree />
+                </PrivateRoute>
+              </main>
+            } />
+            
+            {/* New Family Tree Routes */}
+            {/* Family routes - temporarily without authentication for testing */}
+            <Route path="/family" element={
+              <main id="main-content" className="container mx-auto px-3 xs:px-4 sm:px-6 lg:px-8 pt-20 xs:pt-24 sm:pt-28 pb-6 xs:pb-8 relative z-10">
+                <PrivateRoute>
+                  <FamilyListPage />
+                </PrivateRoute>
+              </main>
+            } />
+            <Route path="/family/member/:serNo" element={
+              <main id="main-content" className="container mx-auto px-3 xs:px-4 sm:px-6 lg:px-8 pt-20 xs:pt-24 sm:pt-28 pb-6 xs:pb-8 relative z-10">
+                <PrivateRoute>
+                  <FamilyMemberPage />
+                </PrivateRoute>
+              </main>
+            } />
+            <Route path="/family/member/:serNo/children" element={
+              <main id="main-content" className="container mx-auto px-3 xs:px-4 sm:px-6 lg:px-8 pt-20 xs:pt-24 sm:pt-28 pb-6 xs:pb-8 relative z-10">
+                <PrivateRoute>
+                  <FamilyChildrenPage />
+                </PrivateRoute>
+              </main>
+            } />
+            <Route path="/family/tree/:serNo" element={
+              <main id="main-content" className="container mx-auto px-3 xs:px-4 sm:px-6 lg:px-8 pt-20 xs:pt-24 sm:pt-28 pb-6 xs:pb-8 relative z-10">
+                <PrivateRoute>
+                  <FamilyTreeComponent />
+                </PrivateRoute>
+              </main>
+            } />
+            <Route path="/family/tree-fmem/:serNo" element={
+              <main id="main-content" className="container mx-auto px-3 xs:px-4 sm:px-6 lg:px-8 pt-20 xs:pt-24 sm:pt-28 pb-6 xs:pb-8 relative z-10">
+                <PrivateRoute>
+                  <FmemFamilyTree />
+                </PrivateRoute>
+              </main>
+            } />
+            <Route path="/family/tree-horizontal/:serNo" element={
+              <main id="main-content" className="w-full px-3 xs:px-4 sm:px-6 lg:px-8 pt-20 xs:pt-24 sm:pt-28 pb-6 xs:pb-8 relative z-10">
+                <PrivateRoute>
+                  <HorizontalFmemTree />
+                </PrivateRoute>
+              </main>
+            } />
+            
+            {/* Comprehensive Family Tree */}
+            <Route path="/family/comprehensive" element={
+              <main id="main-content" className="container mx-auto px-3 xs:px-4 sm:px-6 lg:px-8 pt-20 xs:pt-24 sm:pt-28 pb-6 xs:pb-8 relative z-10">
+                <PrivateRoute>
+                  <ComprehensiveFamilyTree />
+                </PrivateRoute>
+              </main>
+            } />
+            
+            
+            
+            {/* API Test Page (for development only) */}
+            <Route path="/api-test" element={
+              <main id="main-content" className="container mx-auto px-3 xs:px-4 sm:px-6 lg:px-8 pt-20 xs:pt-24 sm:pt-28 pb-6 xs:pb-8 relative z-10">
+                <ApiTestPage />
+              </main>
+            } />
+            
+            {/* Raw Data Page (for development only) */}
+            <Route path="/raw-data" element={
+              <main id="main-content" className="container mx-auto px-3 xs:px-4 sm:px-6 lg:px-8 pt-20 xs:pt-24 sm:pt-28 pb-6 xs:pb-8 relative z-10">
+                <RawDataPage />
+              </main>
+            } />
+            
+            {/* New Features Showcase */}
+            <Route path="/new-features" element={
+              <main id="main-content" className="container mx-auto px-3 xs:px-4 sm:px-6 lg:px-8 pt-20 xs:pt-24 sm:pt-28 pb-6 xs:pb-8 relative z-10">
+                <NewFeaturesShowcase />
+              </main>
+            } />
+            
+            {/* Relationships Page */}
+            <Route path="/relationships" element={
+              <main id="main-content" className="container mx-auto px-3 xs:px-4 sm:px-6 lg:px-8 pt-20 xs:pt-24 sm:pt-28 pb-6 xs:pb-8 relative z-10">
+                <RelationshipsPage />
+              </main>
+            } />
+            
+            {/* Admin Relations Page */}
+            <Route path="/admin/relations" element={
+              <main id="main-content" className="container mx-auto px-3 xs:px-4 sm:px-6 lg:px-8 pt-20 xs:pt-24 sm:pt-28 pb-6 xs:pb-8 relative z-10">
+                <AdminRelationsPage />
+              </main>
+            } />
+            
+            {/* Relationship Test Page */}
+            <Route path="/test/relations" element={
+              <main id="main-content" className="container mx-auto px-3 xs:px-4 sm:px-6 lg:px-8 pt-20 xs:pt-24 sm:pt-28 pb-6 xs:pb-8 relative z-10">
+                <RelationshipTestPage />
+              </main>
+            } />
+
+            {/* Admin Dashboard */}
+            <Route path="/admin" element={
+              <main id="main-content" className="container mx-auto px-3 xs:px-4 sm:px-6 lg:px-8 pt-20 xs:pt-24 sm:pt-28 pb-6 xs:pb-8 relative z-10">
+                <AdminRoute>
+                  <AdminDashboard />
+                </AdminRoute>
+              </main>
+            } />
+            <Route path="/profile" element={
+              <main id="main-content" className="container mx-auto px-3 xs:px-4 sm:px-6 lg:px-8 pt-20 xs:pt-24 sm:pt-28 pb-6 xs:pb-8 relative z-10">
+                <PrivateRoute>
+                  <Profile />
+                </PrivateRoute>
+              </main>
+            } />
+            <Route path="/yogeshwari-devi" element={<><div aria-hidden className="h-16 xs:h-20 sm:h-24" /><YogeshwariDevi /></>} />
+            <Route path="/vyadeshwar-temple" element={<><div aria-hidden className="h-16 xs:h-20 sm:h-24" /><VyadeshwarTemple /></>} />
+            <Route path="/loader-demo" element={
+              <main id="main-content" className="relative z-10">
+                <LoaderDemo />
+              </main>
+            } />
+            <Route path="/loader-examples" element={
+              <main id="main-content" className="relative z-10">
+                <LoaderUsageExample />
+              </main>
+            } />
+            <Route path="/loading-effects" element={
+              <main id="main-content" className="relative z-10">
+                <LoadingEffectsDemo />
+              </main>
+            } />
+            <Route path="/pdf-export-demo" element={
+              <main id="main-content" className="container mx-auto px-3 xs:px-4 sm:px-6 lg:px-8 pt-20 xs:pt-24 sm:pt-28 pb-6 xs:pb-8 relative z-10">
+                <PDFExportDemo />
+              </main>
+            } />
+                  </Routes>
+                  <SiteFooter />
+                </div>
+              </QuickLoader>
+            </LoadingProvider>
+          </Router>
+          </ToastProvider>
+        </AuthProvider>
+      </LanguageProvider>
+    </AccessibilityProvider>
+  );
+}
+
+export default App;

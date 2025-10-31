@@ -30,6 +30,7 @@ import GogteNewsPage from './pages/GogteNews';
 import RemembranceDayPage from './pages/RemembranceDayPage';
 import VaatchaalPage from './pages/VaatchaalPage';
 import NewsApp from './pages/app';
+import AdminDashboard from './pages/AdminDashboard';
 console.log("React version at runtime:", React.version);
 
 function AppRoutesWithLoader() {
@@ -80,9 +81,9 @@ function AppRoutesWithLoader() {
             <Route path="/profile" element={<DBADashboard />} />
           </Route>
           <Route element={<AdminProtectedRoute />}>
-            <Route path="/admin-dashboard" element={<GogteKulAdmin />} />
-            <Route path="/dashboard" element={<GogteKulAdmin />} />
-            <Route path="/profile" element={<GogteKulAdmin />} />
+            <Route path="/admin-dashboard" element={<AdminDashboard />} />
+            <Route path="/dashboard" element={<AdminDashboard />} />
+            <Route path="/profile" element={<AdminDashboard />} />
           </Route>
           <Route path="/photo-gallery" element={<PhotoGalleryPage />} />
           <Route path="/granth" element={<GranthPage />} />

@@ -56,8 +56,8 @@ api.interceptors.response.use(
 
 export default api;
 
-export async function apiLogin(email, password) {
-  const res = await api.post(resolvePath('/api/auth/login'), { email, password });
+export async function apiLogin(username, password) {
+  const res = await api.post(resolvePath('/api/auth/login'), { username, password });
   return res.data;
 }
 

@@ -9,7 +9,7 @@ const LoginRegisterPage = () => {
   const [showText, setShowText] = useState(false);
   const hoverText = `परशुराम हा जमदग्नी आणि रेणुकेचा मुलगा होता. जमदग्नी ब्राह्मण होता तर रेणुका क्षत्रिय अर्थात योद्धा कुळातील होती. परशुराम हा शिवाचा महान उपासक होता. शस्त्रविद्येत पारंगत असलेला परशुराम गुरु द्रोणाचार्य, कर्ण आणि अर्जुन या महापुरुषांचा तो शिक्षक होता असे मानले जाते. त्याने चित्पावन ब्राह्मण नावाच्या एका लहान समुदायाची चौदा गोत्र निर्माण केली. परशुरामाने चित्पावन ब्राह्मणांना वेद, युद्धनीती आणि युद्ध कला शिकवली. चित्पावन ब्राह्मण परशुरामांना "आदिपुरुष" किंवा मूळ पुरुष म्हणून संबोधतात.`;
 
-  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -23,18 +23,20 @@ const LoginRegisterPage = () => {
     setError('');
     setLoading(true);
     try {
-      const { token, user } = await apiLogin(email, password);
+      const { token, user } = await apiLogin(username, password);
       localStorage.setItem('authToken', token);
       localStorage.setItem('currentUser', JSON.stringify(user));
       localStorage.setItem('user', JSON.stringify(user));
       if (rememberMe) {
-        localStorage.setItem('rememberLogin', JSON.stringify({ email, password, expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000 }));
+        localStorage.setItem('rememberLogin', JSON.stringify({ username, password, expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000 }));
       } else {
         localStorage.removeItem('rememberLogin');
       }
       
       // Redirect based on user role
-      if (user.role === 'dba') {
+      if (user.role === 'admin') {
+        window.location.href = '/admin-dashboard';
+      } else if (user.role === 'dba') {
         window.location.href = '/dba-dashboard';
       } else {
         window.location.href = '/dashboard';
@@ -114,13 +116,13 @@ const LoginRegisterPage = () => {
                     <div className="w-full bg-green-50 text-green-700 px-3 py-2 rounded border border-green-200 text-sm">{success}</div>
                   )}
                   <input
-                    type="email"
-                    name="login_email_custom"
+                    type="text"
+                    name="login_username_custom"
                     autoComplete="off"
-                    placeholder="Email"
+                    placeholder="Username"
                     className="w-full px-4 py-2 border border-amber-200 rounded focus:outline-none focus:ring-2 focus:ring-amber-400 text-lg"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
                     required
                   />
                   <div className="relative">

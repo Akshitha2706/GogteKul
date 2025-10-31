@@ -2,7 +2,9 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { MongoClient, ObjectId } from 'mongodb';
+import mongoose from 'mongoose';
 import createAuthRouter from './routes/auth.js';
+import adminV2Router from './routes/adminV2.js';
 import fs from 'fs';
 import { verifyToken, requireDBA, requireAdmin } from './middleware/auth.js';
 import { upload, parseNestedFields } from './middleware/upload.js';
@@ -38,6 +40,18 @@ const sheetsCollectionName = 'members';
 
 let client;
 let db;
+
+// ==================== MONGOOSE CONNECTION ====================
+mongoose.connect(mongoUri, {
+  dbName: dbName,
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+})
+  .then(() => console.log('✓ Mongoose connected to MongoDB'))
+  .catch((err) => console.error('✗ Mongoose connection error:', err.message));
+
+// Register adminV2 routes
+app.use('/api/adminV2', adminV2Router);
 
 const stringOrEmpty = (value) => (value === undefined || value === null ? '' : String(value));
 const trimmedStringOrEmpty = (value) => stringOrEmpty(value).trim();
@@ -1006,14 +1020,41 @@ app.get('/api/family/search', async (req, res) => {
   }
 });
 
-app.get('/api/members/celebrations', async (_req, res) => {
+app.get('/api/members/celebrations', verifyToken, async (req, res) => {
   try {
     const database = await connectToMongo();
     const collection = database.collection(collectionName);
+
+    // Get current user's serNo from JWT
+    const userSerNo = req.user?.serNo;
+    const isAdmin = req.user?.role === 'admin' || !!req.user?.adminId;
+
+    // Look up the user's member record to get their actual vansh
+    let userVansh = null;
+    if (userSerNo) {
+      const memberRecord = await collection.findOne({
+        $or: [
+          { serNo: userSerNo },
+          { serNo: String(userSerNo) },
+          { sNo: userSerNo },
+          { sNo: String(userSerNo) }
+        ]
+      });
+
+      if (memberRecord && memberRecord.vansh) {
+        userVansh = String(memberRecord.vansh);
+      } else if (memberRecord && memberRecord.sNo) {
+        userVansh = String(memberRecord.sNo);
+      }
+    }
+
+    console.log(`[CELEBRATIONS] User serNo: ${userSerNo}, vansh: ${userVansh}, isAdmin: ${isAdmin}`);
+    
     const members = await collection
       .find({}, {
         projection: {
           serNo: 1,
+          sNo: 1,
           spouseSerNo: 1,
           marriedDetails: 1,
           remarriedDetails: 1,
@@ -1032,6 +1073,22 @@ app.get('/api/members/celebrations', async (_req, res) => {
         }
       })
       .toArray();
+    
+    // Filter members by vansh - only include members from the same vansh
+    // Admins can see all members
+    const filteredMembers = isAdmin ? members : members.filter(member => {
+      // Get member's vansh (from vansh or sNo field)
+      const memberVansh = String(member.vansh || member.sNo || member.serNo || '');
+      const matches = userVansh ? memberVansh === userVansh : false;
+
+      if (!matches && member.serNo) {
+        console.log(`[CELEBRATIONS FILTER] Filtering out member serNo=${member.serNo} (vansh=${memberVansh}), user vansh=${userVansh}`);
+      }
+
+      return matches;
+    });
+    
+    console.log(`[CELEBRATIONS] Filtered ${filteredMembers.length} members from total ${members.length}`);
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -1057,14 +1114,14 @@ app.get('/api/members/celebrations', async (_req, res) => {
     };
 
     const memberLookup = new Map();
-    members.forEach((member) => {
+    filteredMembers.forEach((member) => {
       const key = toSerNoKey(member.serNo);
       if (key) {
         memberLookup.set(key, member);
       }
     });
 
-    members.forEach((member) => {
+    filteredMembers.forEach((member) => {
       const personal = member.personalDetails || {};
       const rawBirthDate = pickFirstDefined([
         personal.dateOfBirth,
@@ -1156,7 +1213,7 @@ app.get('/api/members/celebrations', async (_req, res) => {
       return { date: null, source: null };
     };
 
-    members.forEach((member) => {
+    filteredMembers.forEach((member) => {
       const { date: marriageDate, source } = resolveMarriageDetails(member);
       if (!marriageDate) {
         return;
@@ -1205,6 +1262,7 @@ app.get('/api/members/celebrations', async (_req, res) => {
       (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
     );
 
+    console.log(`[CELEBRATIONS SUCCESS] Vansh ${userVansh}: ${birthdays.length} birthdays, ${anniversaries.length} anniversaries`);
     res.json({ birthdays, anniversaries });
   } catch (error) {
     console.error('Error fetching upcoming celebrations:', error);
@@ -1584,6 +1642,66 @@ app.get('/api/test', (req, res) => {
   res.json({ message: 'Server is running', timestamp: new Date().toISOString() });
 });
 
+// Debug endpoint for vansh filtering troubleshooting
+app.get('/api/debug/user-info', verifyToken, (req, res) => {
+  try {
+    res.json({
+      message: 'User information from JWT token',
+      user: {
+        sub: req.user.sub,
+        username: req.user.username,
+        email: req.user.email,
+        role: req.user.role,
+        serNo: req.user.serNo,
+        serNoType: typeof req.user.serNo,
+        serNoIsNull: req.user.serNo === null,
+        serNoIsUndefined: req.user.serNo === undefined
+      }
+    });
+  } catch (err) {
+    console.error('Error in debug endpoint:', err);
+    res.status(500).json({ error: 'Debug failed' });
+  }
+});
+
+// Debug endpoint to check a specific event
+app.get('/api/debug/event/:eventId', async (req, res) => {
+  try {
+    const database = await connectToMongo();
+    const collection = database.collection(eventsCollectionName);
+    
+    const event = await collection.findOne({ 
+      _id: new ObjectId(req.params.eventId) 
+    });
+    
+    if (!event) {
+      return res.status(404).json({ error: 'Event not found' });
+    }
+    
+    res.json({
+      message: 'Event details for debugging',
+      event: {
+        _id: event._id,
+        title: event.title,
+        visibleToAllVansh: event.visibleToAllVansh,
+        visibleVanshNumbers: event.visibleVanshNumbers,
+        visibleVanshNumbersType: Array.isArray(event.visibleVanshNumbers) 
+          ? 'array of ' + (event.visibleVanshNumbers.length > 0 ? typeof event.visibleVanshNumbers[0] : 'unknown')
+          : typeof event.visibleVanshNumbers,
+        visibleVanshNumbersRaw: event.visibleVanshNumbers
+      },
+      userInfo: req.user ? {
+        serNo: req.user.serNo,
+        serNoType: typeof req.user.serNo,
+        stringSerNo: String(req.user.serNo)
+      } : { message: 'No user authenticated' }
+    });
+  } catch (err) {
+    console.error('Error in event debug endpoint:', err);
+    res.status(500).json({ error: 'Debug failed: ' + err.message });
+  }
+});
+
 app.use('/api/auth', createAuthRouter(connectToMongo));
 
 // Admin routes
@@ -1641,27 +1759,8 @@ app.get('/api/admin/family-members', verifyToken, requireAdmin, async (req, res)
   }
 });
 
-app.get('/api/events', async (req, res) => {
-  try {
-    const database = await connectToMongo();
-    const collection = database.collection(eventsCollectionName);
-    const documents = await collection.find({}).sort({ date: 1, createdAt: -1, _id: -1 }).toArray();
-    await attachCreatorNamesToEvents(database, documents);
-    const normalized = documents.map(normalizeEventDocument).filter(Boolean);
-    const vanshFilter = trimmedStringOrEmpty(req.query?.vansh);
-    const filtered = vanshFilter
-      ? normalized.filter((event) => {
-          if (event.visibleToAllVansh) return true;
-          const list = Array.isArray(event.visibleVanshNumbers) ? event.visibleVanshNumbers : [];
-          return list.includes(vanshFilter) || list.includes(String(Number(vanshFilter)));
-        })
-      : normalized;
-    res.json({ events: filtered });
-  } catch (err) {
-    console.error('Error fetching events:', err);
-    res.status(500).json({ error: 'Failed to fetch events' });
-  }
-});
+// REMOVED: Old /api/events endpoint that used incorrect vansh filtering
+// The correct endpoint with proper vansh lookup from members table is defined later
 
 app.put('/api/events/:id', verifyToken, async (req, res) => {
   try {
@@ -1692,8 +1791,43 @@ app.get('/api/news', async (req, res) => {
   try {
     const database = await connectToMongo();
     const collection = database.collection(newsCollectionName);
+    const membersCollection = database.collection(collectionName);
     const documents = await collection.find({}).sort({ createdAt: -1, _id: -1 }).toArray();
-    res.json(documents.map(normalizeNewsDocument).filter(Boolean));
+    const normalized = documents.map(normalizeNewsDocument).filter(Boolean);
+
+    // Get vansh from query param or look up from members table for authenticated users
+    let vanshFilter = trimmedStringOrEmpty(req.query?.vansh);
+    if (!vanshFilter && req.user?.serNo) {
+      // Look up the user's member record to get their actual vansh
+      const memberRecord = await membersCollection.findOne({
+        $or: [
+          { serNo: req.user.serNo },
+          { serNo: String(req.user.serNo) },
+          { sNo: req.user.serNo },
+          { sNo: String(req.user.serNo) }
+        ]
+      });
+
+      if (memberRecord && memberRecord.vansh) {
+        vanshFilter = String(memberRecord.vansh);
+      } else if (memberRecord && memberRecord.sNo) {
+        vanshFilter = String(memberRecord.sNo);
+      }
+    }
+    
+    const filtered = normalized.filter((news) => {
+      // If visible to all vansh, always show
+      if (news.visibleToAllVansh) return true;
+      
+      // If no vansh info available, only show if visible to all
+      if (!vanshFilter) return false;
+      
+      // Check if user's vansh is in the visible list
+      const list = Array.isArray(news.visibleVanshNumbers) ? news.visibleVanshNumbers : [];
+      return list.includes(vanshFilter) || list.includes(String(Number(vanshFilter)));
+    });
+    
+    res.json(filtered);
   } catch (err) {
     console.error('Error fetching news:', err);
     res.status(500).json({ error: 'Failed to fetch news' });
@@ -2148,6 +2282,9 @@ app.post('/api/events', verifyToken, (req, res, next) => {
     const visibleForAll = toBoolean(visibleToAllVansh);
     const normalizedVisibleVanshNumbers = visibleForAll ? [] : ensureVisibleVanshNumbers(visibleVanshNumbers);
 
+    // DEBUG: Log vansh settings for event creation
+    console.log(`[EVENT CREATE] Title: "${title}", visibleForAll: ${visibleForAll}, visibleVanshNumbers: ${JSON.stringify(normalizedVisibleVanshNumbers)}, creatorSerNo: ${req.user?.serNo}`);
+
     const createdAt = new Date();
     const resolvedCreatorName = await resolveMemberNameBySerNo(database, req.user?.serNo);
     const eventData = {
@@ -2177,6 +2314,9 @@ app.post('/api/events', verifyToken, (req, res, next) => {
     };
 
     const result = await collection.insertOne(eventData);
+    
+    // DEBUG: Log successful creation
+    console.log(`[EVENT CREATE SUCCESS] Event saved with ID: ${result.insertedId}`);
 
     res.json({
       success: true,
@@ -2197,19 +2337,74 @@ app.post('/api/events', verifyToken, (req, res, next) => {
   }
 });
 
-// Get all events
-app.get('/api/events', async (req, res) => {
+// Get all events (with vansh filtering)
+// IMPORTANT: Now requires authentication to properly filter by vansh
+app.get('/api/events', verifyToken, async (req, res) => {
   try {
     const database = await connectToMongo();
-    const collection = database.collection('events');
+    const eventsCollection = database.collection('events');
+    const membersCollection = database.collection('members');
 
-    const events = await collection
+    // Extract user's serNo from JWT token
+    const userSerNo = req.user?.serNo;
+    if (!userSerNo) {
+      console.warn('[EVENTS] User authenticated but no serNo in token');
+      return res.status(401).json({
+        success: false,
+        message: 'User serNo not found in token. Cannot filter events by vansh.'
+      });
+    }
+
+    // Look up the user's member record to get their vansh
+    let userVansh = null;
+    const memberRecord = await membersCollection.findOne({
+      $or: [
+        { serNo: userSerNo },
+        { serNo: String(userSerNo) },
+        { sNo: userSerNo },
+        { sNo: String(userSerNo) }
+      ]
+    });
+
+    if (memberRecord && memberRecord.vansh) {
+      userVansh = String(memberRecord.vansh);
+      console.log(`[EVENTS FILTER] User serNo: ${userSerNo}, vansh: ${userVansh}`);
+    } else {
+      console.warn(`[EVENTS FILTER] User serNo: ${userSerNo} - member record not found or no vansh`);
+    }
+
+    // Fetch all events
+    const events = await eventsCollection
       .find({})
       .sort({ fromDate: 1 })  // Sort ascending: soonest events first
       .toArray();
 
+    // Filter by vansh visibility
+    const filtered = events.filter((event, idx) => {
+      // If visible to all vansh, always show
+      if (event.visibleToAllVansh) return true;
+      
+      // If no user vansh available, only show if visible to all
+      if (!userVansh) {
+        console.log(`[EVENTS FILTER] Event "${event.title}" (idx ${idx}): HIDDEN - user has no vansh`);
+        return false;
+      }
+      
+      // Check if user's vansh is in the visible list
+      const list = Array.isArray(event.visibleVanshNumbers) ? event.visibleVanshNumbers : [];
+      const matches = list.includes(userVansh) || list.includes(String(Number(userVansh)));
+      
+      if (!matches) {
+        console.log(`[EVENTS FILTER] Event "${event.title}" (idx ${idx}): HIDDEN - visibleVanshNumbers=${JSON.stringify(list)}, userVansh=${userVansh}`);
+      } else {
+        console.log(`[EVENTS FILTER] Event "${event.title}" (idx ${idx}): VISIBLE to vansh ${userVansh}`);
+      }
+      
+      return matches;
+    });
+
     // Process events to include image data
-    const processedEvents = events.map(event => {
+    const processedEvents = filtered.map(event => {
       if (event.eventImage && event.eventImage.data) {
         return {
           ...event,
@@ -2236,7 +2431,7 @@ app.get('/api/events', async (req, res) => {
   }
 });
 
-// Get single event by ID
+// Get single event by ID (with vansh filtering)
 app.get('/api/events/:id', async (req, res) => {
   try {
     const database = await connectToMongo();
@@ -2247,6 +2442,24 @@ app.get('/api/events/:id', async (req, res) => {
 
     if (!event) {
       return res.status(404).json({ success: false, message: 'Event not found' });
+    }
+
+    // Check vansh visibility
+    let vanshFilter = trimmedStringOrEmpty(req.query?.vansh);
+    if (!vanshFilter && req.user?.serNo) {
+      vanshFilter = String(req.user.serNo);
+    }
+
+    // If not visible to all vansh, check if user has access
+    if (!event.visibleToAllVansh) {
+      if (!vanshFilter) {
+        return res.status(403).json({ success: false, message: 'Access denied: Event not visible to your vansh' });
+      }
+      const list = Array.isArray(event.visibleVanshNumbers) ? event.visibleVanshNumbers : [];
+      const hasAccess = list.includes(vanshFilter) || list.includes(String(Number(vanshFilter)));
+      if (!hasAccess) {
+        return res.status(403).json({ success: false, message: 'Access denied: Event not visible to your vansh' });
+      }
     }
 
     // Include image data as data URL
@@ -2423,7 +2636,10 @@ app.delete('/api/events/:id', async (req, res) => {
   }
 });
 
-// Get events by date range
+// REMOVED: Duplicate /api/members/celebrations endpoint
+// The correct endpoint with proper upcoming celebrations logic is defined earlier
+
+// Get events by date range (with vansh filtering)
 app.get('/api/events/range/search', async (req, res) => {
   try {
     const database = await connectToMongo();
@@ -2450,7 +2666,26 @@ app.get('/api/events/range/search', async (req, res) => {
       .sort({ fromDate: 1 })
       .toArray();
 
-    const processedEvents = events.map(event => {
+    // Get vansh from query param or JWT token
+    let vanshFilter = trimmedStringOrEmpty(req.query?.vansh);
+    if (!vanshFilter && req.user?.serNo) {
+      vanshFilter = String(req.user.serNo);
+    }
+
+    // Filter by vansh visibility
+    const filtered = events.filter(event => {
+      // If visible to all vansh, always show
+      if (event.visibleToAllVansh) return true;
+      
+      // If no vansh info available, only show if visible to all
+      if (!vanshFilter) return false;
+      
+      // Check if user's vansh is in the visible list
+      const list = Array.isArray(event.visibleVanshNumbers) ? event.visibleVanshNumbers : [];
+      return list.includes(vanshFilter) || list.includes(String(Number(vanshFilter)));
+    });
+
+    const processedEvents = filtered.map(event => {
       if (event.eventImage && event.eventImage.data) {
         return {
           ...event,
