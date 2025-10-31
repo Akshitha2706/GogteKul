@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import axios from "axios";
 import { useForm, Controller } from "react-hook-form";
+import { useNavigate } from "react-router-dom";
 import MultiStepForm from "../components/MultiStepForm.jsx";
 import ParentAutocomplete from "../components/ParentAutocomplete.jsx";
 import { motion } from "framer-motion";
@@ -199,6 +200,7 @@ const FilePreviewInput = ({
   error,
   description,
   initialPreview = null,
+  disabled = false,
 }) => {
   const [preview, setPreview] = useState(() => {
     if (field.value instanceof File) {
@@ -262,6 +264,7 @@ const FilePreviewInput = ({
           type="file"
           accept={accept}
           onChange={handleChange}
+          disabled={disabled}
           aria-describedby={description ? `${field.name}-description` : undefined}
           className="block w-full cursor-pointer rounded-lg border border-dashed border-slate-300 bg-white px-4 py-3 text-sm text-slate-600 shadow-sm transition hover:border-primary-400 hover:text-slate-800"
         />
@@ -286,21 +289,30 @@ const FilePreviewInput = ({
   );
 };
 
-const TextInput = ({ label, register, required, error, type = "text", ...props }) => (
-  <div className="space-y-2">
-    <label className="block text-sm font-medium text-slate-700">
-      {label}
-      {required && <span className="text-red-500"> *</span>}
-    </label>
-    <input
-      type={type}
-      className="w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm transition focus:border-primary-500 focus:ring-primary-500"
-      {...register}
-      {...props}
-    />
-    {error && <p className="text-xs font-medium text-red-500">{error}</p>}
-  </div>
-);
+const TextInput = ({ label, register, required, error, type = "text", ...props }) => {
+  const isReadOnly = Boolean(props.readOnly);
+  const inputClass = `w-full rounded-lg border border-slate-300 px-4 py-3 text-sm shadow-sm transition ${
+    isReadOnly
+      ? "bg-slate-100 text-slate-500 cursor-not-allowed focus:border-slate-300 focus:ring-0"
+      : "bg-white text-slate-700 focus:border-primary-500 focus:ring-primary-500"
+  }`;
+
+  return (
+    <div className="space-y-2">
+      <label className="block text-sm font-medium text-slate-700">
+        {label}
+        {required && <span className="text-red-500"> *</span>}
+      </label>
+      <input
+        type={type}
+        className={inputClass}
+        {...register}
+        {...props}
+      />
+      {error && <p className="text-xs font-medium text-red-500">{error}</p>}
+    </div>
+  );
+};
 
 const SelectInput = ({ label, register, options, required, error, ...props }) => (
   <div className="space-y-2">
@@ -333,6 +345,7 @@ const TextAreaInput = ({ label, register, required, error, rows = 3, ...props })
     <textarea
       rows={rows}
       className="w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm transition focus:border-primary-500 focus:ring-primary-500"
+      placeholder={props.placeholder}
       {...register}
       {...props}
     />
@@ -361,9 +374,9 @@ const RadioGroup = ({ label, name, control, options, required, error }) => (
             {options.map((option) => (
               <label
                 key={option.value}
-                className={`flex cursor-pointer items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium transition ${
+                className={`flex cursor-pointer items-center gap-2 rounded-full border px-5 py-2 text-sm font-semibold transition ${
                   field.value === option.value
-                    ? "border-primary-500 bg-primary-50 text-primary-700"
+                    ? "border-amber-500 bg-amber-500 text-white shadow-sm"
                     : "border-slate-300 bg-white text-slate-600"
                 }`}
               >
@@ -372,6 +385,9 @@ const RadioGroup = ({ label, name, control, options, required, error }) => (
                   value={option.value}
                   checked={field.value === option.value}
                   onChange={(event) => field.onChange(event.target.value)}
+                  onBlur={field.onBlur}
+                  name={field.name}
+                  ref={field.ref}
                   className="hidden"
                 />
                 {option.label}
@@ -409,6 +425,17 @@ export default function FamilyFormPage() {
   const [currentStep, setCurrentStep] = useState(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitMessage, setSubmitMessage] = useState("");
+  const [isSuccessModalVisible, setIsSuccessModalVisible] = useState(false);
+  const [isFatherAutoFilled, setIsFatherAutoFilled] = useState(false);
+  const [isMotherAutoFilled, setIsMotherAutoFilled] = useState(false);
+  const successMessageText = "Family member entered successfully.";
+  const navigate = useNavigate();
+
+  const handleSuccessModalClose = useCallback(() => {
+    setIsSuccessModalVisible(false);
+    setCurrentStep(1);
+    navigate('/register');
+  }, [navigate]);
 
   const {
     register,
@@ -490,6 +517,14 @@ export default function FamilyFormPage() {
     setValue,
   ]);
 
+  useEffect(() => {
+    setIsFatherAutoFilled(Boolean(formValues.parentsInformation?.fatherSerNo));
+  }, [formValues.parentsInformation?.fatherSerNo]);
+
+  useEffect(() => {
+    setIsMotherAutoFilled(Boolean(formValues.parentsInformation?.motherSerNo));
+  }, [formValues.parentsInformation?.motherSerNo]);
+
   const handleFormSubmit = async (data) => {
     setIsSubmitting(true);
     setSubmitMessage("");
@@ -501,7 +536,8 @@ export default function FamilyFormPage() {
       });
 
       if (response.data.success) {
-        setSubmitMessage("Family member added successfully!");
+        setSubmitMessage(successMessageText);
+        setIsSuccessModalVisible(true);
         reset();
         setCurrentStep(1);
       }
@@ -514,7 +550,7 @@ export default function FamilyFormPage() {
     }
   };
 
-  const shouldRequire = (fieldPath, formValuesData) => {
+  const shouldRequire = useCallback((fieldPath, formValuesData) => {
     const [section] = fieldPath.split(".");
     const reachable = getReachableSections(formValuesData);
     const sectionMap = {
@@ -526,7 +562,7 @@ export default function FamilyFormPage() {
       parentsInformation: SECTION_IDS.PARENTS,
     };
     return reachable.has(sectionMap[section]);
-  };
+  }, []);
 
   const useSectionMetadata = useMemo(
     () => [
@@ -1208,6 +1244,7 @@ export default function FamilyFormPage() {
               label="Description"
               register={register("parentsInformation.description")}
               rows={3}
+              placeholder="(Add whatever you want for this section)"
             />
             <div className="grid gap-6 md:grid-cols-2">
               <div>
@@ -1222,6 +1259,7 @@ export default function FamilyFormPage() {
                     setValue("parentsInformation.fatherEmail", data.email || "", { shouldValidate: true, shouldDirty: true });
                     setValue("parentsInformation.fatherMobileNumber", data.mobileNumber || "", { shouldValidate: true, shouldDirty: true });
                     setValue("parentsInformation.fatherDateOfBirth", data.dateOfBirth ? data.dateOfBirth.slice(0, 10) : "", { shouldValidate: true, shouldDirty: true });
+                    setIsFatherAutoFilled(true);
 
                     if (data.profileImage) {
                       let imageString = "";
@@ -1266,10 +1304,12 @@ export default function FamilyFormPage() {
                 })}
                 required
                 error={errors.parentsInformation?.fatherFirstName?.message}
+                readOnly={isFatherAutoFilled}
               />
               <TextInput
                 label="Father's Middle Name"
                 register={register("parentsInformation.fatherMiddleName")}
+                readOnly={isFatherAutoFilled}
               />
               <TextInput
                 label="Father's Last Name"
@@ -1278,18 +1318,21 @@ export default function FamilyFormPage() {
                 })}
                 required
                 error={errors.parentsInformation?.fatherLastName?.message}
+                readOnly={isFatherAutoFilled}
               />
               <TextInput
                 label="Father's Email"
                 type="email"
                 register={register("parentsInformation.fatherEmail")}
                 error={errors.parentsInformation?.fatherEmail?.message}
+                readOnly={isFatherAutoFilled}
               />
               <TextInput
                 label="Father's Mobile Number"
                 type="tel"
                 register={register("parentsInformation.fatherMobileNumber")}
                 error={errors.parentsInformation?.fatherMobileNumber?.message}
+                readOnly={isFatherAutoFilled}
               />
               <TextInput
                 label="Father's Date of Birth"
@@ -1299,6 +1342,7 @@ export default function FamilyFormPage() {
                 })}
                 required
                 error={errors.parentsInformation?.fatherDateOfBirth?.message}
+                readOnly={isFatherAutoFilled}
               />
               <Controller
                 name="parentsInformation.fatherProfileImage"
@@ -1313,6 +1357,7 @@ export default function FamilyFormPage() {
                     error={errors.parentsInformation?.fatherProfileImage?.message}
                     description="Upload father's profile image (optional)."
                     initialPreview={fatherPreview || null}
+                    disabled={isFatherAutoFilled}
                   />
                 )}
               />
@@ -1328,6 +1373,7 @@ export default function FamilyFormPage() {
                     setValue("parentsInformation.motherLastName", data.lastName || "", { shouldValidate: true, shouldDirty: true });
                     setValue("parentsInformation.motherMobileNumber", data.mobileNumber || "", { shouldValidate: true, shouldDirty: true });
                     setValue("parentsInformation.motherDateOfBirth", data.dateOfBirth ? data.dateOfBirth.slice(0, 10) : "", { shouldValidate: true, shouldDirty: true });
+                    setIsMotherAutoFilled(true);
 
                     if (data.profileImage) {
                       let imageString = "";
@@ -1372,10 +1418,12 @@ export default function FamilyFormPage() {
                 })}
                 required
                 error={errors.parentsInformation?.motherFirstName?.message}
+                readOnly={isMotherAutoFilled}
               />
               <TextInput
                 label="Mother's Middle Name"
                 register={register("parentsInformation.motherMiddleName")}
+                readOnly={isMotherAutoFilled}
               />
               <TextInput
                 label="Mother's Last Name"
@@ -1384,12 +1432,14 @@ export default function FamilyFormPage() {
                 })}
                 required
                 error={errors.parentsInformation?.motherLastName?.message}
+                readOnly={isMotherAutoFilled}
               />
               <TextInput
                 label="Mother's Mobile Number"
                 type="tel"
                 register={register("parentsInformation.motherMobileNumber")}
                 error={errors.parentsInformation?.motherMobileNumber?.message}
+                readOnly={isMotherAutoFilled}
               />
               <TextInput
                 label="Mother's Date of Birth"
@@ -1399,6 +1449,7 @@ export default function FamilyFormPage() {
                 })}
                 required
                 error={errors.parentsInformation?.motherDateOfBirth?.message}
+                readOnly={isMotherAutoFilled}
               />
               <Controller
                 name="parentsInformation.motherProfileImage"
@@ -1413,6 +1464,7 @@ export default function FamilyFormPage() {
                     error={errors.parentsInformation?.motherProfileImage?.message}
                     description="Upload mother's profile image (optional)."
                     initialPreview={motherPreview || null}
+                    disabled={isMotherAutoFilled}
                   />
                 )}
               />
@@ -1421,7 +1473,7 @@ export default function FamilyFormPage() {
         ),
       },
     ],
-    [control, errors, register, formValues]
+    [control, errors, register, formValues, fatherPreview, motherPreview, setValue, shouldRequire]
   );
 
   const SECTION_FLOW = {
@@ -1493,13 +1545,31 @@ export default function FamilyFormPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary-50 to-slate-50 px-4 py-12 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-4xl">
+        {isSuccessModalVisible && (
+          <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/50 px-4">
+            <div
+              className="w-full max-w-sm rounded-2xl bg-white p-6 text-center shadow-2xl"
+              role="alertdialog"
+              aria-modal="true"
+            >
+              <p className="text-base font-semibold text-slate-900">{successMessageText}</p>
+              <button
+                type="button"
+                onClick={handleSuccessModalClose}
+                className="mt-6 inline-flex w-full justify-center rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-600 focus:outline-none focus:ring-2 focus:ring-amber-400"
+              >
+                Continue
+              </button>
+            </div>
+          </div>
+        )}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5 }}
           className="mb-8 text-center"
         >
-          <h1 className="text-4xl font-bold text-slate-900">Family Information Form</h1>
+          <h1 className="text-4xl font-bold text-slate-900">Gogte KulMandal Registration Form</h1>
           <p className="mt-2 text-slate-600">
             Please fill in the family member details below
           </p>

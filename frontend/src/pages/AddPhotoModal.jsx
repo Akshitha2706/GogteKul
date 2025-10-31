@@ -1,11 +1,11 @@
 import { useState, useRef } from 'react';
-import { Plus, X, Image, Send, Upload, Camera, RefreshCw } from 'lucide-react';
+import { Plus, X, Send, Upload, Camera, RefreshCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '../components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../components/ui/dialog';
 import { Input } from '../components/ui/input';
 import { Textarea } from '../components/ui/textarea';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
+
 import { Label } from '../components/ui/label';
 
 export function AddPhotoModal({ onAddPhoto }) {

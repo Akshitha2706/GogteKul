@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { Filter, Search, Star, User, Users, Clock, X, ChevronLeft, ChevronRight, Calendar, MapPin, Plus, Bell, Gift, Heart } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -73,7 +73,7 @@ export default function GogteEventsPage() {
     return null;
   };
 
-  const normalizeEventRecord = (event) => {
+  const normalizeEventRecord = useCallback((event) => {
     if (!event) {
       return null;
     }
@@ -108,7 +108,7 @@ export default function GogteEventsPage() {
     }
 
     return normalized;
-  };
+  }, [memberDirectory]);
 
   useEffect(() => {
     let isMounted = true;
@@ -187,7 +187,7 @@ export default function GogteEventsPage() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [normalizeEventRecord]);
 
   const celebrationHighlights = useMemo(() => {
     const now = new Date();

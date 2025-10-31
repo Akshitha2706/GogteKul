@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Filter, Search, Calendar, Users, Star, RefreshCw, User, Clock, Heart, MessageCircle, X, Send, Camera, MapPin, Tag, Plus, ArrowLeft } from 'lucide-react';
+import { Filter, Search, Calendar, Users, Star, RefreshCw, User, Clock, Heart, MessageCircle, X, Camera, MapPin, ArrowLeft } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { AddPhotoModal } from './AddPhotoModal';
 import { PhotoCard } from './PhotoCard';
@@ -138,7 +138,7 @@ export default function PhotoGalleryPage() {
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [showDetailModal, isGalleryMode, currentPhotoIndex, filteredPhotos]);
+  }, [showDetailModal, isGalleryMode, handleNextPhoto, handlePrevPhoto, handleCloseModal]);
 
   const handleAddPhoto = (newPhoto) => {
     // If this is a multiple photo upload (has multiple imageUrls)

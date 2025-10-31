@@ -13,8 +13,7 @@ import {
   Heart,
   MessageCircle,
   GitBranch,
-  Link as LinkIcon,
-  ExternalLink,
+
   Sparkles,
   Shield,
   Star
@@ -77,7 +76,7 @@ const Dashboard = () => {
     }
     fetchUser();
   }, []);
-  const [activeTreeTab, setActiveTreeTab] = useState('interactive');
+
   const [showProfile, setShowProfile] = useState(false);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
 
