@@ -1,0 +1,78 @@
+/* Heritage Background Styles */
+
+.heritage-bg {
+  position: relative;
+  min-height: 100vh;
+  overflow: hidden;
+}
+
+.heritage-gradient-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(255, 247, 240, 0.95) 0%, rgba(255, 250, 246, 0.95) 50%, rgba(255, 231, 209, 0.95) 100%);
+  z-index: 1;
+  pointer-events: none;
+}
+
+.heritage-content {
+  position: relative;
+  z-index: 10;
+}
+
+.heritage-decoration {
+  position: absolute;
+  pointer-events: none;
+  opacity: 0.15;
+  z-index: 2;
+  animation: float 20s ease-in-out infinite;
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0px) rotate(0deg);
+  }
+  50% {
+    transform: translateY(30px) rotate(5deg);
+  }
+}
+
+/* Floral corner patterns */
+.heritage-bg .heritage-decoration:nth-child(2) {
+  top: 0;
+  left: 0;
+  width: 200px;
+  height: 200px;
+  background: radial-gradient(circle at center, #f6a56f 0%, transparent 70%);
+  border-radius: 50% 0 50% 50%;
+  animation-delay: 0s;
+}
+
+.heritage-bg .heritage-decoration:nth-child(3) {
+  top: 0;
+  right: 0;
+  width: 200px;
+  height: 200px;
+  background: radial-gradient(circle at center, #f5b88c 0%, transparent 70%);
+  border-radius: 0 50% 50% 50%;
+  animation-delay: 2s;
+}
+
+.heritage-bg .heritage-decoration:nth-child(4) {
+  bottom: 0;
+  left: 0;
+  width: 200px;
+  height: 200px;
+  background: radial-gradient(circle at center, #f8a76f 0%, transparent 70%);
+  border-radius: 50% 50% 0 50%;
+  animation-delay: 4s;
+}
+
+.heritage-bg .heritage-decoration:nth-child(5) {
+  bottom: 0;
+  right: 0;
+  width: 200px;
+  height: 200px;
+  background: radial-gradient(circle at center, #f9b37d 0%, transparent 70%);
+  border-radius: 50% 50% 50% 0;
+  animation-delay: 6s;
+}

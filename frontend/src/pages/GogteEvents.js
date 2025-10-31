@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Filter, Search, Star, User, Users, Clock, X, ChevronLeft, ChevronRight, Calendar, MapPin, Plus, Bell, Gift, Heart } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import Footer from '../components/Footer';
+import api from '../utils/api';
 
 export default function GogteEventsPage() {
   const { t } = useTranslation();
@@ -116,11 +117,8 @@ export default function GogteEventsPage() {
     const fetchCelebrations = async () => {
       setIsFetchingCelebrations(true);
       try {
-        const response = await fetch('/api/members/celebrations');
-        if (!response.ok) {
-          throw new Error('Failed to load celebrations');
-        }
-        const data = await response.json();
+        const response = await api.get('/api/members/celebrations');
+        const data = response.data;
         if (isMounted) {
           setFamilyCelebrations({
             birthdays: Array.isArray(data?.birthdays) ? data.birthdays : [],
@@ -141,11 +139,8 @@ export default function GogteEventsPage() {
     const fetchEvents = async () => {
       setIsFetchingEvents(true);
       try {
-        const response = await fetch('/api/events');
-        if (!response.ok) {
-          throw new Error('Failed to load events');
-        }
-        const data = await response.json();
+        const response = await api.get('/api/events');
+        const data = response.data;
         if (isMounted) {
           // Backend returns data in data.data array
           const eventsList = Array.isArray(data?.data)

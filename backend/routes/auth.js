@@ -142,120 +142,116 @@ export default function createAuthRouter(connectToMongo) {
 
   router.post('/login', async (req, res) => {
     try {
-      const sanitizedEmailInput = sanitizeEmailValue(req.body.email);
+      const inputUsername = String(req.body.username || '').trim().toLowerCase();
       const inputPassword = String(req.body.password || '');
-      if (!sanitizedEmailInput || !inputPassword) {
-        return res.status(400).json({ message: 'Email and password are required' });
+      if (!inputUsername || !inputPassword) {
+        return res.status(400).json({ message: 'Username and password are required' });
       }
-      if (sanitizedEmailInput === process.env.DBA_EMAIL && inputPassword === process.env.DBA_PASSWORD) {
-        const token = jwt.sign({
-          sub: 'dba_admin',
-          email: sanitizedEmailInput,
-          role: 'dba'
-        }, process.env.JWT_SECRET || 'dev_secret', { expiresIn: '7d' });
-        return res.json({
-          message: 'DBA Login successful',
-          token,
-          user: {
-            id: 'dba_admin',
-            firstName: 'Database',
-            lastName: 'Administrator',
-            email: sanitizedEmailInput,
-            role: 'dba'
-          }
-        });
-      }
-      if (sanitizedEmailInput === process.env.ADMIN_EMAIL && inputPassword === process.env.ADMIN_PASSWORD) {
-        const token = jwt.sign({
-          sub: 'admin_user',
-          email: sanitizedEmailInput,
-          role: 'admin'
-        }, process.env.JWT_SECRET || 'dev_secret', { expiresIn: '7d' });
-        return res.json({
-          message: 'Admin Login successful',
-          token,
-          user: {
-            id: 'admin_user',
-            firstName: 'System',
-            lastName: 'Administrator',
-            email: sanitizedEmailInput,
-            role: 'admin'
-          }
-        });
-      }
+
       const db = await connectToMongo();
+      
+      // Try to find user in login collection by username
+      let user = null;
+      let userSource = null;
+      
       const users = await getUsersCollection(db);
-      const normalizedEmail = sanitizedEmailInput.toLowerCase();
-      const emailRegex = new RegExp(`^${escapeRegex(normalizedEmail)}$`, 'i');
-      let user = await users.findOne({
-        $or: emailFields.map(field => ({ [field]: emailRegex }))
+      user = await users.findOne({
+        username: { $regex: `^${escapeRegex(inputUsername)}$`, $options: 'i' }
       });
-      if (!user) {
-        const pipeline = [
-          {
-            $addFields: {
-              __emails: emailFields.map(field => ({ field, value: { $ifNull: [`$${field}`, ''] } }))
-            }
-          },
-          {
-            $match: {
-              __emails: {
-                $elemMatch: {
-                  value: { $type: 'string' },
-                  $expr: {
-                    $eq: [
-                      { $toLower: '$$this.value' },
-                      normalizedEmail
-                    ]
-                  }
-                }
-              }
-            }
-          },
-          { $limit: 1 }
-        ];
-        user = await users.aggregate(pipeline).next();
-      }
-      if (!user) {
-        console.log('[auth] login: user not found for email', sanitizedEmailInput);
-        return res.status(401).json({ message: 'Invalid credentials' });
-      }
-      const storedPasswordValue = findFieldValue(user, passwordFields);
-      const storedPassword = storedPasswordValue !== null && storedPasswordValue !== undefined ? String(storedPasswordValue) : '';
-      let ok = false;
-      if (storedPassword.startsWith('$2')) {
-        const { default: bcrypt } = await import('bcryptjs');
-        ok = await bcrypt.compare(inputPassword, storedPassword);
+      
+      if (user) {
+        userSource = 'login';
+        // Verify password for login collection
+        const storedPasswordValue = findFieldValue(user, passwordFields);
+        const storedPassword = storedPasswordValue !== null && storedPasswordValue !== undefined ? String(storedPasswordValue) : '';
+        let ok = false;
+        if (storedPassword.startsWith('$2')) {
+          const { default: bcrypt } = await import('bcryptjs');
+          ok = await bcrypt.compare(inputPassword, storedPassword);
+        } else {
+          ok = storedPassword === inputPassword;
+        }
+        if (!ok) {
+          console.log('[auth] login: password mismatch for user', inputUsername);
+          return res.status(401).json({ message: 'Invalid credentials' });
+        }
       } else {
-        ok = storedPassword === inputPassword;
-      }
-      if (!ok) {
-        console.log('[auth] login: password mismatch', {
-          userId: user._id?.toString?.() || 'unknown',
-          matchedPasswordField: passwordFields.find(field => user[field] !== undefined && user[field] !== null && user[field] !== '') || null
+        // Try to find user in login_admin collection by adminMail (used as username)
+        const adminCollection = db.collection('login_admin');
+        const adminUser = await adminCollection.findOne({
+          adminMail: { $regex: `^${escapeRegex(inputUsername)}$`, $options: 'i' }
         });
-        return res.status(401).json({ message: 'Invalid credentials' });
+        
+        if (adminUser) {
+          userSource = 'login_admin';
+          // Verify password for login_admin collection
+          const storedPassword = String(adminUser.pass || '');
+          const ok = storedPassword === inputPassword;
+          if (!ok) {
+            console.log('[auth] login: password mismatch for admin', inputUsername);
+            return res.status(401).json({ message: 'Invalid credentials' });
+          }
+          user = adminUser;
+        } else {
+          console.log('[auth] login: user not found for username', inputUsername);
+          return res.status(401).json({ message: 'Invalid credentials' });
+        }
       }
-      const resolvedEmailValue = findFieldValue(user, emailFields) || sanitizedEmailInput;
-      const resolvedRole = user.role || user.Role || user.userRole || 'user';
-      const serNo = user.serNo || user.SerNo || user.serno || null;
-      const token = jwt.sign({
-        sub: String(user._id),
-        email: String(resolvedEmailValue).toLowerCase(),
-        role: resolvedRole,
-        serNo: serNo
-      }, process.env.JWT_SECRET || 'dev_secret', { expiresIn: '7d' });
-      return res.json({
-        message: 'Login successful',
-        token,
-        user: {
-          id: String(user._id),
-          firstName: user.firstName || user.FirstName || user.firstname || '',
-          lastName: user.lastName || user.LastName || user.lastname || '',
+
+      // Generate token based on source
+      let token, responseUser;
+      
+      if (userSource === 'login') {
+        const resolvedEmailValue = findFieldValue(user, emailFields) || user.email || '';
+        const resolvedRole = user.role || user.Role || user.userRole || 'user';
+        const serNo = user.serNo || user.SerNo || user.serno || null;
+        
+        // DEBUG: Log vansh info for troubleshooting
+        console.log(`[AUTH] Login for ${inputUsername}: serNo=${serNo}, type=${typeof serNo}`);
+        if (!serNo) {
+          console.warn(`[AUTH WARNING] User ${inputUsername} has no serNo - events will not be filtered by vansh!`);
+        }
+        
+        token = jwt.sign({
+          sub: String(user._id),
+          username: inputUsername,
           email: String(resolvedEmailValue).toLowerCase(),
           role: resolvedRole,
           serNo: serNo
-        }
+        }, process.env.JWT_SECRET || 'dev_secret', { expiresIn: '7d' });
+        responseUser = {
+          id: String(user._id),
+          firstName: user.firstName || user.FirstName || user.firstname || '',
+          lastName: user.lastName || user.LastName || user.lastname || '',
+          username: user.username || inputUsername,
+          email: String(resolvedEmailValue).toLowerCase(),
+          role: resolvedRole,
+          serNo: serNo
+        };
+      } else if (userSource === 'login_admin') {
+        const adminRole = 'admin';
+        token = jwt.sign({
+          sub: String(user._id),
+          username: inputUsername,
+          adminMail: user.adminMail,
+          role: adminRole,
+          adminId: user.adminId
+        }, process.env.JWT_SECRET || 'dev_secret', { expiresIn: '7d' });
+        responseUser = {
+          id: String(user._id),
+          firstName: 'Admin',
+          lastName: 'User',
+          username: inputUsername,
+          email: user.adminMail,
+          role: adminRole,
+          adminId: user.adminId
+        };
+      }
+
+      return res.json({
+        message: 'Login successful',
+        token,
+        user: responseUser
       });
     } catch (err) {
       console.error('[auth] login error', err);
@@ -269,23 +265,29 @@ export default function createAuthRouter(connectToMongo) {
       const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
       if (!token) return res.status(401).json({ message: 'Missing token' });
       const payload = jwt.verify(token, process.env.JWT_SECRET || 'dev_secret');
-      if (payload.sub === 'dba_admin') {
+      
+      // Check if this is an admin user (from login_admin collection)
+      if (payload.adminId) {
         return res.json({
-          id: 'dba_admin',
-          name: 'Database Administrator',
-          email: payload.email,
-          role: 'dba'
+          id: String(payload.sub),
+          username: payload.username,
+          email: payload.adminMail,
+          role: 'admin',
+          adminId: payload.adminId
         });
       }
+
       const db = await connectToMongo();
       const users = await getUsersCollection(db);
       const user = await users.findOne({ _id: new (await import('mongodb')).ObjectId(payload.sub) });
       if (!user) return res.status(404).json({ message: 'User not found' });
+      
       const resolvedEmailValue = findFieldValue(user, emailFields) || user.email || user.Email || '';
       const resolvedRole = user.role || user.Role || user.userRole || 'user';
       const serNo = user.serNo || user.SerNo || user.serno || null;
       return res.json({
         id: String(user._id),
+        username: user.username || payload.username || '',
         name: user.name || [user.firstName || user.FirstName || '', user.lastName || user.LastName || ''].filter(Boolean).join(' ').trim(),
         email: String(resolvedEmailValue).toLowerCase(),
         role: resolvedRole,
