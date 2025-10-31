@@ -75,7 +75,11 @@ export default function GogteEventsPage() {
         const data = await response.json();
         if (isMounted) {
           // Backend returns data in data.data array
-          const eventsList = Array.isArray(data?.data) ? data.data : [];
+          const eventsList = Array.isArray(data?.data)
+            ? data.data
+            : Array.isArray(data?.events)
+            ? data.events
+            : [];
           
           // Normalize events to include eventImage as dataUrl
           const normalizedEvents = eventsList.map(event => ({
@@ -444,7 +448,11 @@ export default function GogteEventsPage() {
       if (eventsResponse.ok) {
         const data = await eventsResponse.json();
         // Backend returns data in data.data array
-        const eventsList = Array.isArray(data?.data) ? data.data : [];
+        const eventsList = Array.isArray(data?.data)
+          ? data.data
+          : Array.isArray(data?.events)
+          ? data.events
+          : [];
         
         // Normalize events to include eventImage as dataUrl
         const normalizedEvents = eventsList.map(event => ({
