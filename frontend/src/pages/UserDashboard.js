@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import PhotoScroller from '../components/PhotoScroller';
 import Footer from '../components/Footer';
 import Profile from './Profile';
 import {
@@ -11,13 +10,70 @@ import {
   TrendingUp,
   Clock,
   Heart,
-  MessageCircle,
   GitBranch,
 
   Sparkles,
   Shield,
   Star
 } from 'lucide-react';
+
+const toText = (value) => (typeof value === 'string' ? value.trim() : '');
+
+const formatRelativeDate = (value) => {
+  if (!value) {
+    return '';
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+  const now = new Date();
+  const diff = now.getTime() - date.getTime();
+  const abs = Math.abs(diff);
+  const minute = 60 * 1000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+  const month = 30 * day;
+  const year = 365 * day;
+  if (abs < minute) {
+    return 'Just now';
+  }
+  const label = (count, unit) => `${count} ${unit}${count === 1 ? '' : 's'} ${diff >= 0 ? 'ago' : 'from now'}`;
+  if (abs < hour) {
+    const count = Math.max(1, Math.floor(abs / minute));
+    return label(count, 'minute');
+  }
+  if (abs < day) {
+    const count = Math.max(1, Math.floor(abs / hour));
+    return label(count, 'hour');
+  }
+  if (abs < month) {
+    const count = Math.max(1, Math.floor(abs / day));
+    return label(count, 'day');
+  }
+  if (abs < year) {
+    const count = Math.max(1, Math.floor(abs / month));
+    return label(count, 'month');
+  }
+  const count = Math.max(1, Math.floor(abs / year));
+  return label(count, 'year');
+};
+
+const formatEventDate = (value) => {
+  if (!value) {
+    return '';
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+  return date.toLocaleDateString(undefined, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric'
+  });
+};
 
 
 // Small helper for accent ring without changing primary palette
@@ -35,26 +91,48 @@ const Card = ({ children, className = '' }) => (
 
 const Dashboard = () => {
   const navigate = useNavigate();
-  // User state for MongoDB user
   const [user, setUser] = useState({ firstName: 'Guest' });
+  const [summary, setSummary] = useState({ members: 0, news: 0, events: 0, photos: 0 });
+  const [relations, setRelations] = useState({ father: null, mother: null, spouse: null, sons: [], daughters: [] });
+  const [loadingSummary, setLoadingSummary] = useState(true);
+  const [loadingRelations, setLoadingRelations] = useState(true);
 
   useEffect(() => {
-    function getFirstNameFromStorage() {
+    function getStoredSerNo() {
       try {
         const raw = localStorage.getItem('currentUser');
-        if (!raw) return '';
-        const u = JSON.parse(raw);
-        return u?.firstName || (u?.name ? String(u.name).split(' ')[0] : '') || '';
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        return parsed?.serNo ?? null;
       } catch (_) {
-        return '';
+        return null;
       }
     }
 
     async function fetchUser() {
       const token = localStorage.getItem('authToken');
+      const storedSerNo = getStoredSerNo();
       if (!token || token === 'undefined' || token === 'null') {
-        const first = getFirstNameFromStorage();
-        setUser({ firstName: first || 'Guest' });
+        if (storedSerNo) {
+          try {
+            const memberRes = await fetch(`/api/family/members/by-serno/${storedSerNo}`);
+            if (memberRes.ok) {
+              const payload = await memberRes.json();
+              const member = payload?.member;
+              if (member) {
+                const fullName = `${member.firstName || ''} ${member.middleName || ''} ${member.lastName || ''}`.replace(/\s+/g, ' ').trim();
+                setUser({
+                  serNo: member.serNo ?? storedSerNo,
+                  fullName,
+                  firstName: member.firstName || fullName || 'Guest'
+                });
+                return;
+              }
+            }
+          } catch (_) {
+          }
+        }
+        setUser({ firstName: 'Guest' });
         return;
       }
       try {
@@ -63,85 +141,196 @@ const Dashboard = () => {
         });
         if (res.ok) {
           const data = await res.json();
-          const first = data.firstName || (data.name ? String(data.name).split(' ')[0] : '') || getFirstNameFromStorage();
-          setUser({ firstName: first || 'User' });
+          const serNo = data.serNo ?? storedSerNo;
+          if (serNo) {
+            try {
+              const memberRes = await fetch(`/api/family/members/by-serno/${serNo}`);
+              if (memberRes.ok) {
+                const payload = await memberRes.json();
+                const member = payload?.member;
+                if (member) {
+                  const fullName = `${member.firstName || ''} ${member.middleName || ''} ${member.lastName || ''}`.replace(/\s+/g, ' ').trim();
+                  setUser({
+                    serNo,
+                    fullName,
+                    firstName: member.firstName || fullName || 'Guest'
+                  });
+                  return;
+                }
+              }
+            } catch (_) {
+            }
+          }
+          const basicName = data.name || data.username || data.firstName || 'Guest';
+          setUser({
+            serNo,
+            fullName: basicName,
+            firstName: basicName
+          });
         } else {
-          const first = getFirstNameFromStorage();
-          setUser({ firstName: first || 'Guest' });
+          setUser({ firstName: 'Guest' });
         }
       } catch (e) {
-        const first = getFirstNameFromStorage();
-        setUser({ firstName: first || 'Guest' });
+        setUser({ firstName: 'Guest' });
       }
     }
     fetchUser();
   }, []);
 
-  const [showProfile, setShowProfile] = useState(false);
-  const [showLogoutModal, setShowLogoutModal] = useState(false);
-
-  const quickStats = [
-    { title: 'Family Members', value: '156', icon: Users, tint: 'bg-orange-100 text-orange-600', chip: '+12 this month' },
-    { title: 'Recent News', value: '8', icon: Newspaper, tint: 'bg-emerald-100 text-emerald-600', chip: '3 new this week' },
-    { title: 'Upcoming Events', value: '5', icon: Calendar, tint: 'bg-violet-100 text-violet-600', chip: '2 this month' },
-    { title: 'New Photos/albums', value: '10', icon: TrendingUp, tint: 'bg-amber-100 text-amber-700', chip: '+5 this week' },
-  ];
-
-  const recentNews = [
-    { id: 1, title: 'Annual Family Reunion 2024 Announced', summary: 'Join us for our biggest family gathering of the year...', author: 'Rajesh Gogte', date: '2 days ago', likes: 24, comments: 8 },
-    { id: 2, title: 'New Baby Born in the Family', summary: 'Congratulations to Priya and Amit on their new arrival...', author: 'Sunita Gogte', date: '5 days ago', likes: 45, comments: 12 },
-    { id: 3, title: 'Family Business Milestone Achievement', summary: 'Our family business has reached a significant milestone...', author: 'Mohan Gogte', date: '1 week ago', likes: 32, comments: 6 },
-  ];
-
-  const [upcomingCelebrations, setUpcomingCelebrations] = useState([]);
-  const [loadingCelebrations, setLoadingCelebrations] = useState(false);
-
   useEffect(() => {
     let isMounted = true;
-    const fetchCelebrations = async () => {
-      setLoadingCelebrations(true);
+    async function loadSummary() {
+      setLoadingSummary(true);
       try {
-        const response = await fetch('/api/members/celebrations');
+        const response = await fetch('/api/dashboard/summary', {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem('authToken') || ''}`
+          }
+        });
         if (!response.ok) {
-          throw new Error('Failed to fetch celebrations');
+          throw new Error('Failed to load summary');
         }
         const data = await response.json();
         if (isMounted) {
-          const birthdays = Array.isArray(data?.birthdays) ? data.birthdays : [];
-          const anniversaries = Array.isArray(data?.anniversaries) ? data.anniversaries : [];
-          const combined = [...birthdays, ...anniversaries]
-            .map((item) => {
-              const date = item?.date ? new Date(item.date) : null;
-              if (!date || Number.isNaN(date.getTime())) {
-                return null;
-              }
-              date.setHours(0, 0, 0, 0);
-              return {
-                id: `${item.category || 'event'}-${item.serNo || item.id || Math.random()}`,
-                title: item.name || item.title || 'Family Celebration',
-                category: item.category || 'event',
-                date,
-                originalDate: item.originalDate || item.date,
-                turningAge: item.turningAge || null,
-              };
-            })
-            .filter(Boolean)
-            .sort((a, b) => a.date.getTime() - b.date.getTime())
-            .slice(0, 3);
-          setUpcomingCelebrations(combined);
+          setSummary({
+            members: data.members ?? 0,
+            news: data.news ?? 0,
+            events: data.events ?? 0,
+            photos: data.photos ?? 0
+          });
         }
-      } catch (error) {
+      } catch (_) {
         if (isMounted) {
-          setUpcomingCelebrations([]);
+          setSummary({ members: 0, news: 0, events: 0, photos: 0 });
         }
       } finally {
         if (isMounted) {
-          setLoadingCelebrations(false);
+          setLoadingSummary(false);
+        }
+      }
+    }
+    async function loadRelations() {
+      setLoadingRelations(true);
+      try {
+        const response = await fetch('/api/dashboard/relations', {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem('authToken') || ''}`
+          }
+        });
+        if (!response.ok) {
+          throw new Error('Failed to load relations');
+        }
+        const data = await response.json();
+        if (isMounted) {
+          const payload = data?.relations || {};
+          setRelations({
+            father: payload.father || null,
+            mother: payload.mother || null,
+            spouse: payload.spouse || null,
+            sons: Array.isArray(payload.sons) ? payload.sons : [],
+            daughters: Array.isArray(payload.daughters) ? payload.daughters : []
+          });
+        }
+      } catch (_) {
+        if (isMounted) {
+          setRelations({ father: null, mother: null, spouse: null, sons: [], daughters: [] });
+        }
+      } finally {
+        if (isMounted) {
+          setLoadingRelations(false);
+        }
+      }
+    }
+    loadSummary();
+    loadRelations();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const [showProfile, setShowProfile] = useState(false);
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
+
+  const rawFullName = typeof user?.fullName === 'string' ? user.fullName.trim() : '';
+  const greetingText = rawFullName ? `Hi, ${rawFullName}!` : 'Hi!';
+
+  const quickStats = [
+    { title: 'Family Members', value: loadingSummary ? '—' : summary.members, icon: Users, tint: 'bg-orange-100 text-orange-600', chip: loadingSummary ? 'Loading...' : `${summary.members} total` },
+    { title: 'Recent News', value: loadingSummary ? '—' : summary.news, icon: Newspaper, tint: 'bg-emerald-100 text-emerald-600', chip: loadingSummary ? 'Loading...' : `${summary.news} entries` },
+    { title: 'Upcoming Events', value: loadingSummary ? '—' : summary.events, icon: Calendar, tint: 'bg-violet-100 text-violet-600', chip: loadingSummary ? 'Loading...' : `${summary.events} scheduled` },
+    { title: 'New Photos/albums', value: loadingSummary ? '—' : summary.photos, icon: TrendingUp, tint: 'bg-amber-100 text-amber-700', chip: loadingSummary ? 'Loading...' : `${summary.photos} items` },
+  ];
+
+  const [recentNews, setRecentNews] = useState([]);
+  const [loadingNews, setLoadingNews] = useState(false);
+  const [newsError, setNewsError] = useState(false);
+  const [upcomingEvents, setUpcomingEvents] = useState([]);
+  const [loadingEvents, setLoadingEvents] = useState(false);
+  const [eventsError, setEventsError] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+    const fetchDashboardNews = async () => {
+      setLoadingNews(true);
+      try {
+        setNewsError(false);
+        const response = await fetch('/api/dashboard/news?limit=3', {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem('authToken') || ''}`
+          }
+        });
+        if (!response.ok) {
+          throw new Error('Failed to fetch dashboard news');
+        }
+        const data = await response.json();
+        if (isMounted) {
+          const list = Array.isArray(data?.news) ? data.news : [];
+          setRecentNews(list.slice(0, 3));
+          setNewsError(list.length === 0);
+        }
+      } catch (_) {
+        if (isMounted) {
+          setRecentNews([]);
+          setNewsError(true);
+        }
+      } finally {
+        if (isMounted) {
+          setLoadingNews(false);
+        }
+      }
+    };
+    const fetchDashboardEvents = async () => {
+      setLoadingEvents(true);
+      try {
+        setEventsError(false);
+        const response = await fetch('/api/dashboard/events?limit=3', {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem('authToken') || ''}`
+          }
+        });
+        if (!response.ok) {
+          throw new Error('Failed to fetch dashboard events');
+        }
+        const data = await response.json();
+        if (isMounted) {
+          const list = Array.isArray(data?.events) ? data.events : [];
+          setUpcomingEvents(list.slice(0, 3));
+          setEventsError(list.length === 0);
+        }
+      } catch (_) {
+        if (isMounted) {
+          setUpcomingEvents([]);
+          setEventsError(true);
+        }
+      } finally {
+        if (isMounted) {
+          setLoadingEvents(false);
         }
       }
     };
 
-    fetchCelebrations();
+    fetchDashboardNews();
+    fetchDashboardEvents();
     return () => {
       isMounted = false;
     };
@@ -149,36 +338,36 @@ const Dashboard = () => {
 
   return (
   <div className="space-y-8 xs:space-y-12" style={{ fontFamily: 'Montserrat, sans-serif' }}>
-      {/* Orange Bar with Profile and Logout */}
-      <div className="relative overflow-hidden rounded-2xl shadow-lg">
-        <div className="absolute inset-0 bg-gradient-to-br from-amber-100 to-amber-200 opacity-30" />
-        <div className="relative bg-gradient-to-r from-amber-500/95 to-orange-400/95 sm:to-amber-600/90 rounded-2xl p-6 xs:p-8 sm:p-12 text-white flex flex-col sm:flex-row items-center justify-between gap-6">
-          <div>
-            <div className="inline-flex items-center px-3 py-1 rounded-full bg-white/20 text-white text-xs font-semibold mb-3 tracking-wide">
-              <Sparkles size={16} className="mr-2" /> Welcome back, {user?.firstName || 'User'}!
+      <div className="relative overflow-hidden rounded-3xl shadow-[0_20px_45px_rgba(249,115,22,0.25)] transition-all duration-500">
+        <div className="absolute inset-0" style={{ background: 'linear-gradient(140deg, rgba(253,186,116,0.45), rgba(249,115,22,0.3))' }} />
+        <div className="absolute inset-y-0 -left-20 w-56 sm:w-72 opacity-50 blur-3xl" style={{ background: 'radial-gradient(circle at center, rgba(255,255,255,0.55), rgba(253,186,116,0))' }} />
+        <div className="absolute inset-y-0 -right-24 w-64 sm:w-80 opacity-40 blur-[90px]" style={{ background: 'radial-gradient(circle at center, rgba(249,115,22,0.5), rgba(249,115,22,0))' }} />
+        <div className="relative bg-gradient-to-br from-amber-500 via-orange-500 to-amber-600 rounded-3xl px-6 py-8 sm:px-9 sm:py-10 lg:px-12 text-white flex flex-col md:flex-row items-start md:items-center justify-between gap-6 md:gap-10 ring-1 ring-white/10">
+          <div className="space-y-5 max-w-3xl">
+            <div className="space-y-3">
+              <h1 className="text-3xl xs:text-4xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight drop-shadow-lg">
+                {greetingText}
+              </h1>
             </div>
-            <h1 className="text-3xl xs:text-4xl sm:text-5xl font-extrabold tracking-tight drop-shadow-lg">
-              {user?.firstName ? `Hi, ${user.firstName}!` : 'Welcome!'}
-            </h1>
-            <p className="text-amber-50/90 text-lg xs:text-xl sm:text-2xl mt-2 font-medium">
+            <p className="text-amber-50/90 text-base sm:text-lg leading-relaxed max-w-2xl">
               This is your personalized family dashboard. Explore news, events, and more tailored for you.
             </p>
-            <div className="mt-6 flex items-center gap-3">
-              <div className="inline-flex items-center text-sm px-3 py-1 rounded-full bg-white/25 font-semibold">
+            <div className="flex flex-wrap items-center gap-3 pt-1">
+              <div className="inline-flex items-center text-sm px-3 py-1.5 rounded-full bg-white/15 font-semibold backdrop-blur-sm transition-transform duration-300 hover:-translate-y-0.5 hover:bg-white/20">
                 <Shield size={16} className="mr-2" /> Secure Space
               </div>
-              <div className="inline-flex items-center text-sm px-3 py-1 rounded-full bg-white/25 font-semibold">
+              <div className="inline-flex items-center text-sm px-3 py-1.5 rounded-full bg-white/15 font-semibold backdrop-blur-sm transition-transform duration-300 hover:-translate-y-0.5 hover:bg-white/20">
                 <Star size={16} className="mr-2" /> Family First
               </div>
             </div>
           </div>
-          <div className="flex flex-col items-end gap-3">
+          <div className="flex w-full md:w-auto justify-end">
             <button
-              className="bg-white/20 rounded-full p-3 border-2 border-white/40 hover:bg-white/30 transition"
+              className="group bg-white/15 rounded-2xl p-3 sm:p-4 border border-white/30 hover:bg-white/25 hover:shadow-xl transition-all duration-300 backdrop-blur"
               onClick={() => setShowProfile(true)}
               aria-label="View Profile"
             >
-              <User size={36} className="text-white" />
+              <User size={36} className="text-white group-hover:scale-105 transition-transform duration-300" />
             </button>
           </div>
         </div>
@@ -187,14 +376,19 @@ const Dashboard = () => {
       {/* Quick Stats */}
       <div className="grid grid-cols-1 xs:grid-cols-2 lg:grid-cols-4 gap-6">
         {quickStats.map((stat) => (
-          <Card key={stat.title} className="bg-amber-50 border-amber-200">
+          <Card key={stat.title} className="bg-gradient-to-br from-amber-50 via-orange-50 to-amber-100 border-amber-200 shadow-lg transition-transform duration-300 hover:-translate-y-1 hover:shadow-2xl">
             <div className="p-6 flex items-center justify-between">
               <div>
-                <p className="text-sm font-semibold text-amber-700 mb-1">{stat.title}</p>
-                <p className="text-3xl font-extrabold text-amber-900 tracking-tight">{stat.value}</p>
-                <span className="inline-flex mt-2 text-xs px-2 py-1 rounded-full bg-amber-100 text-amber-700 border-amber-200 font-medium">{stat.chip}</span>
+                <p className="text-sm font-semibold text-amber-700 mb-1 uppercase tracking-wide">{stat.title}</p>
+                <p className="text-3xl font-black text-amber-900 tracking-tight flex items-baseline gap-2">
+                  <span>{stat.value}</span>
+                  {!loadingSummary && <span className="text-xs font-semibold text-amber-600 uppercase">Live</span>}
+                </p>
+                <span className="inline-flex mt-2 text-xs px-2.5 py-1.5 rounded-full bg-white/70 text-amber-700 border border-amber-200 font-medium shadow-sm">
+                  {stat.chip}
+                </span>
               </div>
-              <div className="bg-amber-200 text-amber-700 rounded-xl p-3 shadow">
+              <div className="bg-white/70 text-amber-600 rounded-xl p-3 shadow-inner">
                 <stat.icon size={28} className="w-7 h-7" />
               </div>
             </div>
@@ -214,7 +408,7 @@ const Dashboard = () => {
             <p className="text-gray-700 text-lg mb-6">Explore your family lineage, relationships, and history. View the full Kulavruksh for a detailed tree and connections.</p>
             <button
               className="inline-block bg-orange-600 hover:bg-orange-700 text-white font-semibold px-6 py-3 rounded-lg text-lg shadow transition"
-              onClick={() => window.location.href = '/kulavruksh'}
+              onClick={() => navigate('/kulavruksh')}
             >
               View Family Tree
             </button>
@@ -227,31 +421,48 @@ const Dashboard = () => {
               <Users className="mr-2 text-orange-600" size={20} /> Family Members
             </h3>
           </div>
-          <div className="p-4 overflow-y-auto max-h-[260px]">
-            <ul className="space-y-3">
-              <li className="flex items-center gap-3">
-                <User className="text-orange-500" size={20} /> Rahul (Son)
-              </li>
-              <li className="flex items-center gap-3">
-                <User className="text-orange-500" size={20} /> Priya (Daughter)
-              </li>
-              <li className="flex items-center gap-3">
-                <User className="text-orange-500" size={20} /> Anita (Spouse)
-              </li>
-              <li className="flex items-center gap-3">
-                <User className="text-orange-500" size={20} /> Shyam (Father)
-              </li>
-              <li className="flex items-center gap-3">
-                <User className="text-orange-500" size={20} /> Sita (Mother)
-              </li>
-            </ul>
+          <div className="p-4 space-y-4">
+            {loadingRelations ? (
+              <div className="text-center text-amber-600 text-sm">Loading relationships...</div>
+            ) : (
+              <ul className="space-y-3">
+                {relations.father && (
+                  <li className="flex items-center gap-3 text-gray-800">
+                    <User className="text-orange-500" size={20} /> {relations.father.name} (Father)
+                  </li>
+                )}
+                {relations.mother && (
+                  <li className="flex items-center gap-3 text-gray-800">
+                    <User className="text-orange-500" size={20} /> {relations.mother.name} (Mother)
+                  </li>
+                )}
+                {relations.spouse && (
+                  <li className="flex items-center gap-3 text-gray-800">
+                    <User className="text-orange-500" size={20} /> {relations.spouse.name} (Spouse)
+                  </li>
+                )}
+                {relations.sons.map((entry) => (
+                  <li key={`son-${entry.serNo || entry.name}`} className="flex items-center gap-3 text-gray-800">
+                    <User className="text-orange-500" size={20} /> {entry.name} (Son)
+                  </li>
+                ))}
+                {relations.daughters.map((entry) => (
+                  <li key={`daughter-${entry.serNo || entry.name}`} className="flex items-center gap-3 text-gray-800">
+                    <User className="text-orange-500" size={20} /> {entry.name} (Daughter)
+                  </li>
+                ))}
+                {!relations.father && !relations.mother && !relations.spouse && relations.sons.length === 0 && relations.daughters.length === 0 && (
+                  <li className="text-center text-gray-500 text-sm">No relationships found.</li>
+                )}
+              </ul>
+            )}
           </div>
         </Card>
       </div>
 
   <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* Announcements & Updates */}
-        <Card className="bg-amber-50 border-amber-200">
+        <Card className="bg-gradient-to-br from-amber-50 via-orange-50 to-amber-100 border-amber-200 shadow-lg">
           <div className="p-6 border-b border-amber-100">
             <div className="flex items-center justify-between">
               <h2 className="text-xl font-bold text-amber-900 flex items-center">
@@ -263,19 +474,40 @@ const Dashboard = () => {
           </div>
           <div className="p-6">
             <div className="space-y-5">
+              {loadingNews && recentNews.length === 0 && (
+                <div className="border border-dashed border-amber-300 rounded-xl p-5 bg-white text-center text-amber-600 text-base">
+                  Loading latest announcements...
+                </div>
+              )}
+              {!loadingNews && newsError && (
+                <div className="border border-dashed border-amber-300 rounded-xl p-5 bg-white text-center text-amber-600 text-base">
+                  No announcements available right now.
+                </div>
+              )}
               {recentNews.map((news) => (
-                <div key={news.id} className="border border-amber-200 rounded-xl p-5 hover:shadow-lg transition-shadow bg-white mb-5 last:mb-0 last:border-b-0">
-                  <h3 className="font-bold text-amber-900 mb-2 hover:text-amber-600 cursor-pointer text-lg">{news.title}</h3>
-                  <p className="text-amber-800 text-base mb-2">{news.summary}</p>
-                  <div className="flex items-center justify-between text-xs text-amber-700">
+                <div key={news.id || news._id} className="border border-amber-200 rounded-xl p-5 bg-white/90 hover:bg-white transition-all duration-300 shadow-sm hover:shadow-xl">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex-1">
+                      <h3 className="font-bold text-amber-900 mb-1 hover:text-amber-600 cursor-pointer text-lg">{news.title}</h3>
+                      {news.summary && <p className="text-amber-800 text-sm sm:text-base mb-3 leading-relaxed">{news.summary}</p>}
+                    </div>
+                    {typeof news.likes === 'number' && (
+                      <div className="flex items-center text-amber-600 text-xs font-semibold bg-amber-50 border border-amber-200 rounded-full px-3 py-1 shrink-0">
+                        <Heart size={14} className="mr-1" />{news.likes}
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap items-center justify-between text-xs text-amber-700 gap-3">
                     <div className="flex items-center space-x-4">
-                      <span>By {news.author}</span>
-                      <span className="flex items-center"><Clock size={14} className="mr-1" />{news.date}</span>
+                      <span>By {toText(news.authorName) || toText(news.author) || 'Admin'}</span>
+                      <span className="flex items-center"><Clock size={14} className="mr-1" />{formatRelativeDate(news.createdAt || news.publishDate)}</span>
                     </div>
-                    <div className="flex items-center space-x-3">
-                      <span className="flex items-center"><Heart size={14} className="mr-1" />{news.likes}</span>
-                      <span className="flex items-center"><MessageCircle size={14} className="mr-1" />{news.comments}</span>
-                    </div>
+                    <button
+                      className="text-amber-600 hover:text-amber-800 font-semibold"
+                      onClick={() => navigate('/gogte-news')}
+                    >
+                      View Details →
+                    </button>
                   </div>
                 </div>
               ))}
@@ -284,7 +516,7 @@ const Dashboard = () => {
         </Card>
 
         {/* Upcoming Events (moved next to Announcements & Updates) */}
-        <Card className="bg-amber-50 border-amber-200">
+        <Card className="bg-gradient-to-br from-amber-50 via-orange-50 to-amber-100 border-amber-200 shadow-lg">
           <div className="p-6 border-b border-amber-100">
             <div className="flex items-center justify-between">
               <h2 className="text-xl font-bold text-amber-900 flex items-center">
@@ -295,30 +527,53 @@ const Dashboard = () => {
           </div>
           <div className="p-6">
             <div className="space-y-5">
-              {loadingCelebrations && upcomingCelebrations.length === 0 && (
+              {loadingEvents && upcomingEvents.length === 0 && (
                 <div className="border border-dashed border-amber-300 rounded-xl p-5 bg-white text-center text-amber-600 text-base">
-                  Loading upcoming birthdays...
+                  Loading upcoming events...
                 </div>
               )}
-              {!loadingCelebrations && upcomingCelebrations.length === 0 && (
+              {!loadingEvents && eventsError && (
                 <div className="border border-dashed border-amber-300 rounded-xl p-5 bg-white text-center text-amber-600 text-base">
-                  No birthdays within the next week.
+                  Unable to load events.
                 </div>
               )}
-              {upcomingCelebrations.map((event) => (
-                <div key={event.id} className="border border-amber-200 rounded-xl p-5 hover:shadow-lg transition-shadow bg-white">
-                  <h3 className="font-bold text-amber-900 mb-2 text-lg flex items-center gap-2">
-                    <span>{event.title}</span>
-                    <span className="text-sm font-semibold text-amber-600 capitalize">{event.category}</span>
-                  </h3>
-                  <div className="space-y-2 text-base text-amber-800">
-                    <p className="flex items-center"><Calendar size={16} className="mr-2" />{event.date.toLocaleDateString()}</p>
-                    {event.turningAge !== null && (
-                      <p className="flex items-center"><Users size={16} className="mr-2" />Turning {event.turningAge}</p>
-                    )}
+              {!loadingEvents && !eventsError && upcomingEvents.length === 0 && (
+                <div className="border border-dashed border-amber-300 rounded-xl p-5 bg-white text-center text-amber-600 text-base">
+                  No upcoming events at the moment.
+                </div>
+              )}
+              {upcomingEvents.map((event) => (
+                <div key={event.id || event._id} className="border border-amber-200 rounded-xl p-5 bg-white/90 hover:bg-white transition-all duration-300 shadow-sm hover:shadow-xl">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex-1">
+                      <h3 className="font-bold text-amber-900 mb-1 text-lg">
+                        {event.eventName || event.title}
+                      </h3>
+                      {event.description && (
+                        <p className="text-amber-800 text-sm sm:text-base leading-relaxed">
+                          {event.description}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex flex-col items-end text-right text-xs text-amber-600">
+                      <span className="font-semibold bg-amber-50 border border-amber-200 rounded-full px-3 py-1">
+                        {formatEventDate(event.fromDate || event.date)}
+                      </span>
+                    </div>
                   </div>
-                  <div className="mt-4">
-                    <button className="text-amber-600 hover:text-amber-800 text-base font-semibold" onClick={() => window.location.href = '/gogte-events'}>View Details →</button>
+                  <div className="mt-3 flex flex-wrap items-center justify-between text-xs text-amber-700 gap-3">
+                    {event.venue && (
+                      <span className="flex items-center gap-2">
+                        <Users size={14} />
+                        {event.venue}
+                      </span>
+                    )}
+                    <button
+                      className="text-amber-600 hover:text-amber-800 font-semibold"
+                      onClick={() => navigate('/gogte-events')}
+                    >
+                      View Details →
+                    </button>
                   </div>
                 </div>
               ))}
@@ -328,12 +583,6 @@ const Dashboard = () => {
       </div>
 
 
-      {/* PhotoScroller at the end */}
-      <div className="mt-8">
-        <PhotoScroller />
-      </div>
-
-      {/* Footer */}
       <Footer />
 
       {/* Profile Modal */}

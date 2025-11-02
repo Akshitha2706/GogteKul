@@ -39,7 +39,7 @@ if (process.env.NODE_ENV === "production") {
 // MongoDB Connection
 const connectDB = async () => {
   try {
-    const mongoURI = process.env.MONGO_URI || "mongodb://localhost:27017/bal-krishna-nivas";
+    const mongoURI = process.env.MONGO_URI || "mongodb://localhost:27017/gogteKul";
     console.log(`Attempting to connect to MongoDB at: ${mongoURI}`);
 
     await mongoose.connect(mongoURI, {

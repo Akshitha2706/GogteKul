@@ -31,12 +31,13 @@ app.use((req, res, next) => {
   next();
 });
 
-const mongoUri = process.env.MONGODB_URI || 'mongodb+srv://gogtekulam:gogtekul@cluster0.t3c0jt6.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0';
-const dbName = process.env.MONGODB_DB || 'test';
+const mongoUri = process.env.MONGODB_URI || 'mongodb+srv://gogtekulam:gogtekul@cluster0.t3c0jt6.mongodb.net/gogteKul?retryWrites=true&w=majority&appName=Cluster0';
+const dbName = process.env.MONGODB_DB || 'gogteKul';
 const collectionName = 'members';
 const newsCollectionName = 'news';
 const eventsCollectionName = 'events';
 const sheetsCollectionName = 'members';
+const photosCollectionName = 'photos';
 
 let client;
 let db;
@@ -199,6 +200,148 @@ const composeMemberName = (member) => {
   if (fallback) return fallback;
   const serNo = member.serNo !== undefined && member.serNo !== null ? `Member ${member.serNo}` : '';
   return serNo || 'Family Member';
+};
+
+const collectSerNoValues = (value) => {
+  const values = new Set();
+  const pushValue = (entry) => {
+    if (entry === undefined || entry === null) {
+      return;
+    }
+    if (Array.isArray(entry)) {
+      entry.forEach((item) => pushValue(item));
+      return;
+    }
+    const str = trimmedStringOrEmpty(entry);
+    if (!str) {
+      return;
+    }
+    values.add(str);
+    const num = Number(str);
+    if (!Number.isNaN(num)) {
+      values.add(num);
+    }
+  };
+  pushValue(value);
+  return Array.from(values);
+};
+
+const resolveDashboardVanshValue = async (membersCollection, overrideValue, userSerNo) => {
+  const override = trimmedStringOrEmpty(overrideValue);
+  if (override) {
+    return override;
+  }
+  if (userSerNo === undefined || userSerNo === null || userSerNo === '') {
+    return '';
+  }
+  const variants = collectSerNoValues(userSerNo);
+  if (!variants.length) {
+    const fallback = trimmedStringOrEmpty(userSerNo);
+    if (fallback) {
+      variants.push(fallback);
+    }
+  }
+  const candidateSet = new Set();
+  variants.forEach((value) => {
+    candidateSet.add(value);
+    candidateSet.add(String(value));
+  });
+  const candidates = Array.from(candidateSet).filter((entry) => trimmedStringOrEmpty(entry));
+  if (!candidates.length) {
+    return '';
+  }
+  const memberRecord = await membersCollection.findOne({
+    $or: [
+      { serNo: { $in: candidates } },
+      { sNo: { $in: candidates.map((entry) => String(entry)) } }
+    ]
+  });
+  if (memberRecord?.vansh) {
+    return String(memberRecord.vansh);
+  }
+  const fallback = trimmedStringOrEmpty(memberRecord?.sNo);
+  if (fallback) {
+    return fallback;
+  }
+  return '';
+};
+
+const entryVisibleToVansh = (entry, vansh) => {
+  if (!entry) {
+    return false;
+  }
+  if (entry.visibleToAllVansh) {
+    return true;
+  }
+  const variants = collectSerNoValues(vansh);
+  if (!variants.length) {
+    return false;
+  }
+  const list = Array.isArray(entry.visibleVanshNumbers) ? entry.visibleVanshNumbers : [];
+  if (!list.length) {
+    return false;
+  }
+  const normalized = new Set();
+  list.forEach((item) => {
+    collectSerNoValues(item).forEach((variant) => {
+      normalized.add(String(variant));
+    });
+  });
+  return variants.some((variant) => normalized.has(String(variant)));
+};
+
+const normalizeMemberGender = (member) => {
+  const raw = trimmedStringOrEmpty(
+    member?.personalDetails?.gender ??
+      member?.gender ??
+      member?.Gender ??
+      member?.personalDetails?.Gender ??
+      ''
+  );
+  if (!raw) {
+    return null;
+  }
+  const normalized = raw.toLowerCase();
+  if (normalized.startsWith('m')) {
+    return 'male';
+  }
+  if (normalized.startsWith('f')) {
+    return 'female';
+  }
+  return normalized;
+};
+
+const createRelationEntry = (member, relation) => {
+  if (!member) {
+    return null;
+  }
+  const entry = {
+    relation,
+    name: composeMemberName(member) || trimmedStringOrEmpty(member.name) || 'Family Member',
+    serNo: member.serNo ?? null,
+  };
+  const gender = normalizeMemberGender(member);
+  if (gender) {
+    entry.gender = gender;
+  }
+  return entry;
+};
+
+const createFallbackEntry = (name, relation, gender) => {
+  const value = trimmedStringOrEmpty(name);
+  if (!value) {
+    return null;
+  }
+  const entry = {
+    relation,
+    name: value,
+    serNo: null,
+  };
+  const normalizedGender = trimmedStringOrEmpty(gender);
+  if (normalizedGender) {
+    entry.gender = normalizedGender.toLowerCase();
+  }
+  return entry;
 };
 
 const ensureEventPriority = (value) => {
@@ -1699,6 +1842,194 @@ app.get('/api/debug/event/:eventId', async (req, res) => {
   } catch (err) {
     console.error('Error in event debug endpoint:', err);
     res.status(500).json({ error: 'Debug failed: ' + err.message });
+  }
+});
+
+app.get('/api/dashboard/summary', verifyToken, async (req, res) => {
+  try {
+    const database = await connectToMongo();
+    const membersCollection = database.collection(collectionName);
+    const [membersCount, newsCount, eventsCount, photosCount] = await Promise.all([
+      membersCollection.countDocuments({}),
+      database.collection(newsCollectionName).countDocuments({}),
+      database.collection(eventsCollectionName).countDocuments({}),
+      database.collection(photosCollectionName).countDocuments({})
+    ]);
+    res.json({
+      members: membersCount,
+      news: newsCount,
+      events: eventsCount,
+      photos: photosCount
+    });
+  } catch (error) {
+    console.error('Error fetching dashboard summary:', error);
+    res.status(500).json({ error: 'Failed to fetch dashboard summary' });
+  }
+});
+
+app.get('/api/dashboard/relations', verifyToken, async (req, res) => {
+  try {
+    const serNo = req.user?.serNo;
+    if (serNo === undefined || serNo === null || serNo === '') {
+      return res.status(400).json({ error: 'User does not have a linked family record' });
+    }
+    const database = await connectToMongo();
+    const membersCollection = database.collection(collectionName);
+    const findMemberBySerNo = async (value) => {
+      if (value === undefined || value === null || value === '') {
+        return null;
+      }
+      const variants = collectSerNoValues(value);
+      if (!variants.length) {
+        return null;
+      }
+      const memberBySerNo = await membersCollection.findOne({ serNo: { $in: variants } });
+      if (memberBySerNo) {
+        return memberBySerNo;
+      }
+      const asStrings = variants.map((entry) => String(entry));
+      return membersCollection.findOne({ sNo: { $in: asStrings } });
+    };
+    const userMember = await findMemberBySerNo(serNo);
+    if (!userMember) {
+      return res.status(404).json({ error: 'Family member record not found' });
+    }
+    const relationPayload = (member, relation) => {
+      if (!member) {
+        return null;
+      }
+      return {
+        name: composeMemberName(member),
+        relation,
+        serNo: member.serNo ?? null
+      };
+    };
+    const userVariants = collectSerNoValues(userMember.serNo ?? serNo);
+    const father = await findMemberBySerNo(userMember.fatherSerNo);
+    const mother = await findMemberBySerNo(userMember.motherSerNo);
+    let spouse = await findMemberBySerNo(userMember.spouseSerNo);
+    if (!spouse) {
+      spouse = await membersCollection.findOne({ spouseSerNo: { $in: userVariants.map((entry) => String(entry)) } });
+    }
+    const childSource = Array.isArray(userMember.sonDaughterSerNo) ? userMember.sonDaughterSerNo : [];
+    const childVariants = new Set();
+    childSource.forEach((value) => {
+      collectSerNoValues(value).forEach((variant) => {
+        childVariants.add(variant);
+      });
+    });
+    const directChildren = childVariants.size
+      ? await membersCollection.find({ serNo: { $in: Array.from(childVariants) } }).toArray()
+      : [];
+    const spouseSearchValues = Array.from(new Set([...userVariants, ...userVariants.map((entry) => String(entry))]));
+    const additionalChildren = await membersCollection.find({
+      $or: [
+        { fatherSerNo: { $in: userVariants } },
+        { motherSerNo: { $in: userVariants } }
+      ]
+    }).toArray();
+    const childMap = new Map();
+    directChildren.concat(additionalChildren).forEach((doc) => {
+      if (!doc || doc.serNo === undefined || doc.serNo === null) {
+        return;
+      }
+      const key = String(doc.serNo);
+      if (!childMap.has(key)) {
+        childMap.set(key, doc);
+      }
+    });
+    const sons = [];
+    const daughters = [];
+    childMap.forEach((doc) => {
+      const gender = normalizeMemberGender(doc);
+      const entry = {
+        name: composeMemberName(doc),
+        relation: gender === 'female' ? 'Daughter' : gender === 'male' ? 'Son' : 'Child',
+        serNo: doc.serNo ?? null
+      };
+      if (entry.relation === 'Daughter') {
+        daughters.push(entry);
+      } else if (entry.relation === 'Son') {
+        sons.push(entry);
+      } else {
+        sons.push(entry);
+      }
+    });
+    sons.sort((a, b) => a.name.localeCompare(b.name));
+    daughters.sort((a, b) => a.name.localeCompare(b.name));
+    res.json({
+      relations: {
+        father: relationPayload(father, 'Father'),
+        mother: relationPayload(mother, 'Mother'),
+        spouse: relationPayload(spouse, 'Spouse'),
+        sons,
+        daughters
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching dashboard relations:', error);
+    res.status(500).json({ error: 'Failed to fetch relations' });
+  }
+});
+
+app.get('/api/dashboard/news', verifyToken, async (req, res) => {
+  try {
+    const database = await connectToMongo();
+    const collection = database.collection(newsCollectionName);
+    const membersCollection = database.collection(collectionName);
+    const limitParam = Number(req.query?.limit);
+    const limit = Number.isNaN(limitParam) ? 3 : Math.min(Math.max(limitParam, 1), 6);
+    const documents = await collection
+      .find({})
+      .sort({ publishDate: -1, createdAt: -1, _id: -1 })
+      .limit(limit * 4)
+      .toArray();
+    const normalized = documents.map(normalizeNewsDocument).filter(Boolean);
+    const vansh = await resolveDashboardVanshValue(membersCollection, req.query?.vansh, req.user?.serNo);
+    const filtered = normalized.filter((item) => entryVisibleToVansh(item, vansh));
+    res.json({ news: filtered.slice(0, limit) });
+  } catch (error) {
+    console.error('Error fetching dashboard news:', error);
+    res.status(500).json({ error: 'Failed to fetch dashboard news' });
+  }
+});
+
+app.get('/api/dashboard/events', verifyToken, async (req, res) => {
+  try {
+    const database = await connectToMongo();
+    const eventsCollection = database.collection(eventsCollectionName);
+    const membersCollection = database.collection(collectionName);
+    const limitParam = Number(req.query?.limit);
+    const limit = Number.isNaN(limitParam) ? 3 : Math.min(Math.max(limitParam, 1), 6);
+    const documents = await eventsCollection
+      .find({})
+      .sort({ fromDate: 1, date: 1, _id: 1 })
+      .limit(50)
+      .toArray();
+    const normalized = documents.map(normalizeEventDocument).filter(Boolean);
+    const now = Date.now();
+    const upcoming = normalized.filter((item) => {
+      const primary = item.fromDate || item.date;
+      if (!primary) {
+        return false;
+      }
+      const time = new Date(primary).getTime();
+      if (Number.isNaN(time)) {
+        return false;
+      }
+      return time >= now;
+    });
+    const vansh = await resolveDashboardVanshValue(membersCollection, req.query?.vansh, req.user?.serNo);
+    const visible = upcoming.filter((item) => entryVisibleToVansh(item, vansh));
+    visible.sort((a, b) => {
+      const timeA = new Date(a.fromDate || a.date || 0).getTime();
+      const timeB = new Date(b.fromDate || b.date || 0).getTime();
+      return timeA - timeB;
+    });
+    res.json({ events: visible.slice(0, limit) });
+  } catch (error) {
+    console.error('Error fetching dashboard events:', error);
+    res.status(500).json({ error: 'Failed to fetch dashboard events' });
   }
 });
 
