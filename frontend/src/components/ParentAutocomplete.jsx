@@ -13,9 +13,12 @@ const ParentAutocomplete = ({
 }) => {
   const [inputValue, setInputValue] = useState("");
   const [suggestions, setSuggestions] = useState([]);
+  const [filteredSuggestions, setFilteredSuggestions] = useState([]);
   const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [vanshNotSelected, setVanshNotSelected] = useState(!vansh);
+  const [selectedParent, setSelectedParent] = useState(null);
+  const [hasExcludedMarried, setHasExcludedMarried] = useState(false);
   const wrapperRef = useRef(null);
   const debounceTimerRef = useRef(null);
 
@@ -31,17 +34,69 @@ const ParentAutocomplete = ({
     }
   }, [firstNameValue, middleNameValue, lastNameValue]);
 
+  useEffect(() => {
+    if (!selectedParent) {
+      return;
+    }
+    if (selectedParent.isMarriedDaughter) {
+      onSelect({
+        serNo: null,
+        firstName: "",
+        middleName: "",
+        lastName: "",
+        email: "",
+        mobileNumber: "",
+        dateOfBirth: "",
+        profileImage: null,
+        isMarriedDaughter: true,
+      });
+      setSelectedParent(null);
+      setInputValue("");
+      setSuggestions([]);
+      setFilteredSuggestions([]);
+      setHasExcludedMarried(false);
+      setIsOpen(false);
+    }
+  }, [selectedParent, onSelect]);
+
+  useEffect(() => {
+    if (vanshNotSelected) {
+      setSuggestions([]);
+      setFilteredSuggestions([]);
+      setHasExcludedMarried(false);
+      setIsOpen(false);
+      return;
+    }
+  }, [vanshNotSelected]);
+
+  useEffect(() => {
+    if (!suggestions.length) {
+      setFilteredSuggestions([]);
+      setHasExcludedMarried(false);
+      return;
+    }
+    const allowed = suggestions.filter((entry) => !entry.isMarriedDaughter);
+    setFilteredSuggestions(allowed);
+    setHasExcludedMarried(allowed.length < suggestions.length);
+  }, [suggestions]);
+
   // Search for parents
   const searchMembers = useCallback(
     async (query) => {
       if (!query.trim()) {
         setSuggestions([]);
+        setFilteredSuggestions([]);
+        setHasExcludedMarried(false);
+        setSelectedParent(null);
+        setIsOpen(false);
         return;
       }
 
-      // Block search if vansh is not selected
       if (!vansh) {
         setSuggestions([]);
+        setFilteredSuggestions([]);
+        setHasExcludedMarried(false);
+        setIsOpen(false);
         return;
       }
 
@@ -52,12 +107,22 @@ const ParentAutocomplete = ({
         });
 
         if (response.data.success) {
-          setSuggestions(response.data.data);
+          setSuggestions(response.data.data || []);
           setIsOpen(true);
+        } else {
+          setSuggestions([]);
+          setFilteredSuggestions([]);
+          setHasExcludedMarried(false);
+          setSelectedParent(null);
+          setIsOpen(false);
         }
       } catch (error) {
         console.error("Error searching members:", error);
         setSuggestions([]);
+        setFilteredSuggestions([]);
+        setHasExcludedMarried(false);
+        setSelectedParent(null);
+        setIsOpen(false);
       } finally {
         setIsLoading(false);
       }
@@ -70,6 +135,7 @@ const ParentAutocomplete = ({
     (e) => {
       const value = e.target.value;
       setInputValue(value);
+      setSelectedParent(null);
 
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current);
@@ -80,6 +146,8 @@ const ParentAutocomplete = ({
           searchMembers(value);
         } else {
           setSuggestions([]);
+          setFilteredSuggestions([]);
+          setHasExcludedMarried(false);
           setIsOpen(false);
         }
       }, 300);
@@ -111,10 +179,14 @@ const ParentAutocomplete = ({
       mobileNumber: suggestion.mobileNumber,
       dateOfBirth: suggestion.dateOfBirth,
       profileImage: suggestion.profileImage,
+      isMarriedDaughter: suggestion.isMarriedDaughter,
     });
     const displayName = suggestion.name || [suggestion.firstName, suggestion.middleName, suggestion.lastName].filter(Boolean).join(" ");
     setInputValue(displayName);
+    setSelectedParent(suggestion);
     setSuggestions([]);
+    setFilteredSuggestions([]);
+    setHasExcludedMarried(false);
     setIsOpen(false);
   };
 
@@ -143,6 +215,12 @@ const ParentAutocomplete = ({
         </p>
       )}
 
+      {!vanshNotSelected && hasExcludedMarried && (
+        <p className="text-xs text-amber-600">
+          ⚠️ Married daughters are hidden from selection
+        </p>
+      )}
+
       <div className="relative">
         <input
           type="text"
@@ -168,9 +246,9 @@ const ParentAutocomplete = ({
           </div>
         )}
 
-        {isOpen && suggestions.length > 0 && (
+        {isOpen && filteredSuggestions.length > 0 && (
           <div className="absolute top-full z-10 mt-1 max-h-48 w-full overflow-auto rounded-lg border border-slate-300 bg-white shadow-lg">
-            {suggestions.map((suggestion) => {
+            {filteredSuggestions.map((suggestion) => {
               const imageSrc = getProfileImageSrc(suggestion.profileImage);
               const initials = [suggestion.firstName, suggestion.lastName]
                 .filter(Boolean)
@@ -210,7 +288,7 @@ const ParentAutocomplete = ({
           </div>
         )}
 
-        {isOpen && inputValue && suggestions.length === 0 && !isLoading && (
+        {isOpen && inputValue && filteredSuggestions.length === 0 && !isLoading && (
           <div className="absolute top-full z-10 mt-1 w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm text-slate-600 shadow-lg">
             No matches found
           </div>

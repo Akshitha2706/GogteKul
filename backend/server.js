@@ -226,6 +226,101 @@ const collectSerNoValues = (value) => {
   return Array.from(values);
 };
 
+const extractValidSerNoVariants = (value) => {
+  const variants = collectSerNoValues(value);
+  const unique = new Set();
+  variants.forEach((variant) => {
+    if (variant === undefined || variant === null) {
+      return;
+    }
+    if (typeof variant === 'number') {
+      if (!Number.isNaN(variant)) {
+        unique.add(variant);
+        unique.add(String(variant));
+      }
+      return;
+    }
+    const trimmed = trimmedStringOrEmpty(variant);
+    if (!trimmed) {
+      return;
+    }
+    const lower = trimmed.toLowerCase();
+    if (lower === 'null' || lower === 'undefined') {
+      return;
+    }
+    unique.add(trimmed);
+    const numeric = Number(trimmed);
+    if (!Number.isNaN(numeric)) {
+      unique.add(numeric);
+    }
+  });
+  return Array.from(unique);
+};
+
+const hasValidSerNoValue = (value) => extractValidSerNoVariants(value).length > 0;
+
+const resolveMemberBySerNo = async (collection, value) => {
+  if (!collection) {
+    return null;
+  }
+  const variants = extractValidSerNoVariants(value);
+  if (!variants.length) {
+    return null;
+  }
+  const numericVariants = variants.filter((entry) => typeof entry === 'number');
+  const stringVariants = variants.map((entry) => String(entry));
+  const orConditions = [];
+  if (numericVariants.length) {
+    orConditions.push({ serNo: { $in: numericVariants } });
+  }
+  if (stringVariants.length) {
+    orConditions.push({ serNo: { $in: stringVariants } });
+    orConditions.push({ sNo: { $in: stringVariants } });
+  }
+  if (!orConditions.length) {
+    return null;
+  }
+  return collection.findOne({ $or: orConditions });
+};
+
+const createParentEligibilityError = (member, role) => {
+  const error = new Error('Married daughters cannot be selected as parents for new registrations');
+  error.code = 'MARRIED_DAUGHTER_PARENT_NOT_ALLOWED';
+  error.statusCode = 400;
+  error.context = {
+    role,
+    serNo: member?.serNo ?? null,
+    name: composeMemberName(member),
+  };
+  return error;
+};
+
+const enforceMarriedDaughterParentRule = async (membersCollection, payload) => {
+  if (!membersCollection || !payload) {
+    return;
+  }
+  const parentsInformation = payload.parentsInformation || {};
+  const checks = [];
+  const queueParentCheck = (serNo, role) => {
+    if (!hasValidSerNoValue(serNo)) {
+      return;
+    }
+    checks.push({ serNo, role });
+  };
+
+  queueParentCheck(parentsInformation.fatherSerNo, 'father');
+  queueParentCheck(parentsInformation.motherSerNo, 'mother');
+  queueParentCheck(payload.fatherSerNo, 'father');
+  queueParentCheck(payload.motherSerNo, 'mother');
+
+  for (const entry of checks) {
+    const member = await resolveMemberBySerNo(membersCollection, entry.serNo);
+    if (isMarriedDaughterMember(member)) {
+      throw createParentEligibilityError(member, entry.role);
+    }
+  }
+};
+
 const resolveDashboardVanshValue = async (membersCollection, overrideValue, userSerNo) => {
   const override = trimmedStringOrEmpty(overrideValue);
   if (override) {
@@ -309,6 +404,54 @@ const normalizeMemberGender = (member) => {
     return 'female';
   }
   return normalized;
+};
+
+const isMarriedDaughterMember = (member) => {
+  if (!member) {
+    return false;
+  }
+  const gender = normalizeMemberGender(member);
+  if (gender !== 'female') {
+    return false;
+  }
+  if (!hasValidSerNoValue(member.fatherSerNo)) {
+    return false;
+  }
+  if (!hasValidSerNoValue(member.spouseSerNo)) {
+    return false;
+  }
+  return true;
+};
+
+const buildParentSearchEntry = (member) => {
+  if (!member) {
+    return null;
+  }
+  const personal = member.personalDetails || {};
+  const profileImage = personal.profileImage || member.profileImage || null;
+  const mobile = personal.mobileNumber || personal.alternateMobileNumber || member.mobileNumber || member.phoneNumber || '';
+  const firstName = personal.firstName || member.firstName || '';
+  const middleName = personal.middleName || member.middleName || '';
+  const lastName = personal.lastName || member.lastName || '';
+  const composedName = member.name || `${firstName} ${middleName} ${lastName}`.replace(/\s+/g, ' ').trim();
+  const gender = normalizeMemberGender(member);
+
+  return {
+    serNo: member.serNo ?? personal.serNo ?? null,
+    firstName,
+    middleName,
+    lastName,
+    name: composedName,
+    email: personal.email || member.email || '',
+    mobileNumber: mobile,
+    dateOfBirth: personal.dateOfBirth || member.dateOfBirth || '',
+    profileImage,
+    gender,
+    fatherSerNo: member.fatherSerNo ?? null,
+    motherSerNo: member.motherSerNo ?? null,
+    spouseSerNo: member.spouseSerNo ?? null,
+    isMarriedDaughter: isMarriedDaughterMember(member),
+  };
 };
 
 const createRelationEntry = (member, relation) => {
@@ -1109,47 +1252,39 @@ app.get('/api/family/search', async (req, res) => {
           { 'personalDetails.vansh': vansh.toString() }
         ];
 
+    const numericVansh = Number(vansh);
+    const vanshMatch = Number.isNaN(numericVansh)
+      ? [vansh, String(vansh)]
+      : [numericVansh, String(numericVansh)];
+
     const members = await collection
       .find({
         $and: [
           {
             $or: [
               { 'personalDetails.firstName': searchRegex },
-              { 'personalDetails.lastName': searchRegex },
               { 'personalDetails.middleName': searchRegex },
+              { 'personalDetails.lastName': searchRegex },
               { name: searchRegex },
               { firstName: searchRegex },
-              { lastName: searchRegex },
-              { middleName: searchRegex }
+              { middleName: searchRegex },
+              { lastName: searchRegex }
             ]
           },
-          { $or: vanshConditions }
+          {
+            $or: [
+              { vansh: { $in: vanshMatch } },
+              { 'personalDetails.vansh': { $in: vanshMatch } }
+            ]
+          }
         ]
       })
-      .limit(10)
+      .limit(20)
       .toArray();
 
-    const data = members.map((member) => {
-      const personal = member.personalDetails || {};
-      const profileImage = personal.profileImage || member.profileImage || null;
-      const mobile = personal.mobileNumber || personal.alternateMobileNumber || member.mobileNumber || member.phoneNumber || '';
-      const firstName = personal.firstName || member.firstName || '';
-      const middleName = personal.middleName || member.middleName || '';
-      const lastName = personal.lastName || member.lastName || '';
-      const composedName = member.name || `${firstName} ${middleName} ${lastName}`.replace(/\s+/g, ' ').trim();
-
-      return {
-        serNo: member.serNo ?? personal.serNo ?? null,
-        firstName,
-        middleName,
-        lastName,
-        name: composedName,
-        email: personal.email || member.email || '',
-        mobileNumber: mobile,
-        dateOfBirth: personal.dateOfBirth || member.dateOfBirth || '',
-        profileImage
-      };
-    });
+    const data = members
+      .map((member) => buildParentSearchEntry(member))
+      .filter((entry) => entry && !entry.isMarriedDaughter);
 
     console.log(`[family] Search query="${query}" vansh=${vansh} found=${data.length}`);
     res.json({ success: true, data });
@@ -2316,7 +2451,6 @@ app.get('/api/family/hierarchical-tree', async (req, res) => {
       if (member.serNo !== undefined && member.serNo !== null) {
         memberMap.set(member.serNo, member);
         
-        // Build children map for faster lookups
         const fatherSerNo = member.fatherSerNo;
         if (fatherSerNo !== undefined && fatherSerNo !== null && fatherSerNo !== '') {
           if (!childrenMap.has(fatherSerNo)) {
@@ -2427,8 +2561,10 @@ app.post('/api/family/register', uploadFields, parseNestedFields, async (req, re
   try {
     console.log('📥 POST /api/family/register - Family member registration received');
     const database = await connectToMongo();
+    const membersCollection = database.collection(collectionName);
     const collection = database.collection('Heirarchy_form');
     const payload = prepareFormPayload(req.body, req.files);
+    await enforceMarriedDaughterParentRule(membersCollection, payload);
     const result = await collection.insertOne(payload);
     console.log(`✅ Family member registered successfully with ID: ${result.insertedId}`);
     res.status(201).json({
@@ -2437,7 +2573,11 @@ app.post('/api/family/register', uploadFields, parseNestedFields, async (req, re
     });
   } catch (err) {
     console.error('❌ Error registering family member:', err);
-    res.status(500).json({ error: 'Failed to register family member', details: err.message });
+    const status = err?.statusCode || 500;
+    const message = err?.code === 'MARRIED_DAUGHTER_PARENT_NOT_ALLOWED'
+      ? 'Married daughters cannot be selected as parents under their birth family'
+      : 'Failed to register family member';
+    res.status(status).json({ error: message, details: err.message, code: err.code || 'REGISTRATION_FAILED' });
   }
 });
 
@@ -2456,26 +2596,40 @@ app.get('/api/family/search', async (req, res) => {
     // Create search regex for flexible matching
     const searchRegex = new RegExp(query, 'i');
     
+        const numericVansh = Number(vansh);
+    const vanshMatch = Number.isNaN(numericVansh)
+      ? [vansh, String(vansh)]
+      : [numericVansh, String(numericVansh)];
+
     const members = await collection.find({
-      vansh: parseInt(vansh),
-      $or: [
-        { firstName: searchRegex },
-        { lastName: searchRegex },
-        { 'name': searchRegex }
+      $and: [
+        {
+          $or: [
+            { firstName: searchRegex },
+            { middleName: searchRegex },
+            { lastName: searchRegex },
+            { name: searchRegex },
+            { 'personalDetails.firstName': searchRegex },
+            { 'personalDetails.middleName': searchRegex },
+            { 'personalDetails.lastName': searchRegex }
+          ]
+        },
+        {
+          $or: [
+            { vansh: { $in: vanshMatch } },
+            { 'personalDetails.vansh': { $in: vanshMatch } }
+          ]
+        }
       ]
-    }).limit(10).toArray();
+    }).limit(20).toArray();
+
+    const data = members
+      .map((member) => buildParentSearchEntry(member))
+      .filter((entry) => entry && !entry.isMarriedDaughter);
 
     res.json({
       success: true,
-      data: members.map(m => ({
-        serNo: m.serNo,
-        name: `${m.firstName || ''} ${m.lastName || ''}`.trim(),
-        firstName: m.firstName,
-        lastName: m.lastName,
-        email: m.email,
-        mobileNumber: m.mobileNumber,
-        dateOfBirth: m.dateOfBirth,
-      }))
+      data,
     });
   } catch (err) {
     console.error('Error searching parents:', err);
@@ -2487,8 +2641,10 @@ app.get('/api/family/search', async (req, res) => {
 app.post('/api/family/add', upload.any(), parseNestedFields, async (req, res) => {
   try {
     const database = await connectToMongo();
+    const membersCollection = database.collection(collectionName);
     const collection = database.collection('Heirarchy_form');
     const payload = prepareFormPayload(req.body, req.files);
+    await enforceMarriedDaughterParentRule(membersCollection, payload);
     const result = await collection.insertOne(payload);
     res.json({
       success: true,
@@ -2498,9 +2654,15 @@ app.post('/api/family/add', upload.any(), parseNestedFields, async (req, res) =>
     });
   } catch (err) {
     console.error('Error registering family member:', err);
-    res.status(500).json({
+    const status = err?.statusCode || 500;
+    const message = err?.code === 'MARRIED_DAUGHTER_PARENT_NOT_ALLOWED'
+      ? 'Married daughters cannot be selected as parents under their birth family'
+      : 'Failed to register family member';
+    res.status(status).json({
       success: false,
-      message: 'Failed to register family member: ' + err.message
+      message,
+      code: err.code || 'REGISTRATION_FAILED',
+      details: err.message
     });
   }
 });
