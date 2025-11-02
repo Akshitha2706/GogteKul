@@ -2327,38 +2327,45 @@ app.get('/api/family/hierarchical-tree', async (req, res) => {
       }
     });
 
-    // Helper function to build tree node in CardFamilyTree format
-    function buildTreeNode(member, processed = new Set()) {
+    function buildTreeNode(member, processed = new Set(), ancestorLineage = []) {
       if (!member || processed.has(member.serNo)) {
         return null;
       }
       processed.add(member.serNo);
 
       const fullName = getFullName(member);
-      const fatherSerNo = member.fatherSerNo;
       const spouseName = getSpouseName(member);
+      const gender = getGender(member);
+      const isFemale = gender?.toLowerCase?.() === 'female';
+      const hasFather = member.fatherSerNo != null && member.fatherSerNo !== '';
+      const isDaughterInPaternalTree = isFemale && hasFather;
 
-      // Get children - use pre-built map for O(1) lookup instead of O(n)
+      const lineageNext = [...ancestorLineage, member.serNo];
       const children = [];
-      const memberChildren = childrenMap.get(member.serNo) || [];
-      memberChildren.forEach(childMember => {
-        if (!processed.has(childMember.serNo)) {
-          const childNode = buildTreeNode(childMember, processed);
-          if (childNode) children.push(childNode);
-        }
-      });
+      if (!isDaughterInPaternalTree) {
+        const memberChildren = childrenMap.get(member.serNo) || [];
+        memberChildren.forEach(childMember => {
+          const childIsFemale = (childMember.personalDetails?.gender || childMember.gender || '').toLowerCase() === 'female';
+          const childHasFather = childMember.fatherSerNo != null && childMember.fatherSerNo !== '';
+          const childFatherInLineage = childHasFather && lineageNext.includes(childMember.fatherSerNo);
+          if (!processed.has(childMember.serNo) && !(childIsFemale && childFatherInLineage)) {
+            const childNode = buildTreeNode(childMember, processed, lineageNext);
+            if (childNode) children.push(childNode);
+          }
+        });
+      }
 
       return {
         name: fullName || `Member #${member.serNo}`,
         attributes: {
           serNo: member.serNo,
-          gender: getGender(member),
+          gender,
           spouse: spouseName,
           vansh: member.vansh || '',
           dob: member.personalDetails?.dateOfBirth || member['Date of Birth'] || '',
           email: member.personalDetails?.email || member.Email || ''
         },
-        children: children
+        children
       };
     }
 
